@@ -427,6 +427,11 @@ img, svg { display: block; }
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
+.textarea {
+  resize: vertical;
+  min-height: 96px;
+}
+
 label {
   display: block;
   font-size: 13px;
@@ -512,6 +517,7 @@ label {
   .mobile-only  { display: flex !important; }
   .topnav-inner { padding: 0 16px; }
   .page         { padding: 20px 16px; }
+  .modal-grid-two { grid-template-columns: 1fr; }
 
   .topnav {
     position: sticky;
@@ -643,6 +649,20 @@ label {
 .card-title  { font-size: 15px; font-weight: 600; line-height: 1.4; }
 .card-desc   { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px; }
 
+.hazard-card-image-wrap {
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+}
+
+.hazard-card-image {
+  width: 100%;
+  height: 190px;
+  object-fit: cover;
+}
+
 .card-meta   { display: flex; flex-direction: column; gap: 6px; }
 
 .meta-row {
@@ -677,6 +697,118 @@ label {
 }
 
 .empty-emoji { font-size: 40px; margin-bottom: 12px; }
+
+/* Hazard report modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(6, 10, 18, 0.74);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-card {
+  width: min(640px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 18px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-grid-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.location-panel {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.location-readout {
+  min-height: 42px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.hazard-image-preview-wrap {
+  margin-top: 10px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+}
+
+.hazard-image-preview {
+  width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+  display: block;
+}
+
+.camera-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.camera-preview-wrap {
+  margin-bottom: 10px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  background: #05070c;
+}
+
+.camera-preview {
+  width: 100%;
+  max-height: 300px;
+  object-fit: cover;
+  display: block;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.form-error {
+  color: #fca5a5;
+  font-size: 13px;
+}
 
 /* ══════════════════════════════════════════════════════════
    DASHBOARD PAGE
