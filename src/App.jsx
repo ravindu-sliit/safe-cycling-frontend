@@ -1,12 +1,18 @@
 import { useState } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Login from './pages/Login.jsx'
+import Register from './pages/Register.jsx'
+import ForgotPassword from './pages/ForgotPassword.jsx'
+import ResetPassword from './pages/ResetPassword.jsx'
+import VerifyEmail from './pages/VerifyEmail.jsx'
+import Profile from './pages/Profile.jsx'
+import AdminDashboard from './pages/AdminDashboard.jsx'
 import MapDashboard from './pages/MapDashboard.jsx'
 import Hazards from './pages/Hazards.jsx'
 import Reviews from './pages/Reviews.jsx'
-import './App.css'
+import ProtectedRoute from './components/ProtectedRoute.jsx'
+import { useAuth } from './context/AuthContext.jsx'
 
-/* ── Icons ──────────────────────────────────────────────── */
 function IconBike() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -18,6 +24,7 @@ function IconBike() {
     </svg>
   )
 }
+
 function IconMap() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -27,6 +34,7 @@ function IconMap() {
     </svg>
   )
 }
+
 function IconAlert() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -36,6 +44,7 @@ function IconAlert() {
     </svg>
   )
 }
+
 function IconStar() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -43,6 +52,7 @@ function IconStar() {
     </svg>
   )
 }
+
 function IconUser() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -51,6 +61,7 @@ function IconUser() {
     </svg>
   )
 }
+
 function IconBell() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -59,6 +70,7 @@ function IconBell() {
     </svg>
   )
 }
+
 function IconMenu() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -68,6 +80,7 @@ function IconMenu() {
     </svg>
   )
 }
+
 function IconClose() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -77,98 +90,148 @@ function IconClose() {
   )
 }
 
-const NAV = [
-  { to: '/dashboard', label: 'Dashboard', Icon: IconMap },
-  { to: '/hazards',   label: 'Hazards',   Icon: IconAlert },
-  { to: '/reviews',   label: 'Reviews',   Icon: IconStar },
-  { to: '/login',     label: 'Account',   Icon: IconUser },
-]
-
 function Navbar() {
   const { pathname } = useLocation()
+  const { isAuthenticated, user } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
 
+  if (!isAuthenticated) {
+    return null
+  }
+
+  const dashboardPath = user?.role === 'admin' ? '/admin/dashboard' : '/dashboard'
+  const navItems = [
+    { to: dashboardPath, label: 'Dashboard', Icon: IconMap },
+    { to: '/hazards', label: 'Hazards', Icon: IconAlert },
+    { to: '/reviews', label: 'Reviews', Icon: IconStar },
+    { to: '/profile', label: 'Account', Icon: IconUser },
+  ]
+
   return (
-    <>
-      <header className="topnav">
-        <div className="topnav-inner">
-          {/* Logo */}
-          <Link to="/dashboard" className="topnav-logo" onClick={() => setMobileOpen(false)}>
-            <div className="topnav-logo-icon">
-              <IconBike />
-            </div>
-            <div className="topnav-logo-text">
-              Safe<span>Cycling</span>
-            </div>
-          </Link>
-
-          {/* Nav links + actions – all right aligned */}
-          <div className="topnav-right">
-            <nav className="topnav-links">
-              {NAV.map(({ to, label, Icon }) => (
-                <Link
-                  key={to}
-                  to={to}
-                  className={`topnav-link${pathname === to ? ' active' : ''}`}
-                >
-                  <Icon />
-                  {label}
-                </Link>
-              ))}
-            </nav>
-
-            <div className="topnav-actions">
-              <button className="topnav-icon-btn" aria-label="Notifications">
-                <span className="notif-dot" />
-                <IconBell />
-              </button>
-              <div className="topnav-avatar">JD</div>
-
-              {/* Mobile hamburger */}
-              <button
-                className="topnav-icon-btn mobile-only"
-                onClick={() => setMobileOpen(o => !o)}
-                aria-label="Toggle menu"
-              >
-                {mobileOpen ? <IconClose /> : <IconMenu />}
-              </button>
-            </div>
+    <header className="topnav">
+      <div className="topnav-inner">
+        <Link to={dashboardPath} className="topnav-logo" onClick={() => setMobileOpen(false)}>
+          <div className="topnav-logo-icon">
+            <IconBike />
           </div>
-        </div>
+          <div className="topnav-logo-text">
+            Safe<span>Cycling</span>
+          </div>
+        </Link>
 
-        {/* Mobile dropdown */}
-        {mobileOpen && (
-          <nav className="topnav-mobile">
-            {NAV.map(({ to, label, Icon }) => (
+        <div className="topnav-right">
+          <nav className="topnav-links">
+            {navItems.map(({ to, label, Icon }) => (
               <Link
                 key={to}
                 to={to}
-                className={`topnav-mobile-link${pathname === to ? ' active' : ''}`}
-                onClick={() => setMobileOpen(false)}
+                className={`topnav-link${pathname === to ? ' active' : ''}`}
               >
                 <Icon />
                 {label}
               </Link>
             ))}
           </nav>
-        )}
-      </header>
-    </>
+
+          <div className="topnav-actions">
+            <button className="topnav-icon-btn" aria-label="Notifications">
+              <span className="notif-dot" />
+              <IconBell />
+            </button>
+            <button
+              className="topnav-icon-btn mobile-only"
+              onClick={() => setMobileOpen((open) => !open)}
+              aria-label="Toggle menu"
+            >
+              {mobileOpen ? <IconClose /> : <IconMenu />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {mobileOpen && (
+        <nav className="topnav-mobile">
+          {navItems.map(({ to, label, Icon }) => (
+            <Link
+              key={to}
+              to={to}
+              className={`topnav-mobile-link${pathname === to ? ' active' : ''}`}
+              onClick={() => setMobileOpen(false)}
+            >
+              <Icon />
+              {label}
+            </Link>
+          ))}
+        </nav>
+      )}
+    </header>
   )
 }
 
 function App() {
+  const location = useLocation()
+  const { isAuthenticated, user } = useAuth()
+  const dashboardPath = user?.role === 'admin' ? '/admin/dashboard' : '/dashboard'
+  const isAuthPage =
+    location.pathname === '/login' ||
+    location.pathname === '/register' ||
+    location.pathname === '/forgot-password' ||
+    location.pathname.startsWith('/reset-password/') ||
+    location.pathname.startsWith('/verify-email/')
+  const hideNavbar = isAuthPage || location.pathname === '/admin/dashboard'
+
   return (
     <div className="app-shell">
-      <Navbar />
+      {!hideNavbar && <Navbar />}
       <main className="main-content">
         <Routes>
-          <Route path="/"          element={<Navigate to="/dashboard" replace />} />
-          <Route path="/login"     element={<Login />} />
-          <Route path="/dashboard" element={<MapDashboard />} />
-          <Route path="/hazards"   element={<Hazards />} />
-          <Route path="/reviews"   element={<Reviews />} />
-          <Route path="*"          element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<Navigate to={isAuthenticated ? dashboardPath : '/login'} replace />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/verify-email/:token" element={<VerifyEmail />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password/:token" element={<ResetPassword />} />
+          <Route
+            path="/admin/dashboard"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <MapDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/hazards"
+            element={
+              <ProtectedRoute>
+                <Hazards />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reviews"
+            element={
+              <ProtectedRoute>
+                <Reviews />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<Navigate to={isAuthenticated ? dashboardPath : '/login'} replace />} />
         </Routes>
       </main>
     </div>
