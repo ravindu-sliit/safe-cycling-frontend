@@ -137,9 +137,10 @@ export default function MapDashboard() {
               {Array.isArray(routes) && routes.map((route) => {
                 if (!Array.isArray(route.pathCoordinates) || route.pathCoordinates.length === 0) return null; 
 
+                // Backend returns pathCoordinates as array of { lng, lat } objects
                 const safePositions = route.pathCoordinates
-                  .filter(coord => Array.isArray(coord) && coord.length >= 2)
-                  .map(coord => [coord[1], coord[0]]); 
+                  .filter(coord => typeof coord === 'object' && coord.lat !== undefined && coord.lng !== undefined)
+                  .map(coord => [coord.lat, coord.lng]); // Convert to Leaflet [lat, lng] format
 
                 if (safePositions.length === 0) return null;
 
