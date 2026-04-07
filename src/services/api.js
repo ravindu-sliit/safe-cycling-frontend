@@ -1,8 +1,10 @@
 import axios from 'axios';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+
 // Create a central Axios instance
 const api = axios.create({
-  baseURL: 'http://localhost:5000/api', // Change this later when you deploy!
+  baseURL: API_BASE_URL,
 });
 
 // Intercept requests to automatically add the Auth Token
