@@ -454,13 +454,13 @@ export default function AdminDashboard() {
       </div>
 
       <div className="admin-overview-grid">
-        {overviewCards.map(({ label, value, tone, Icon }) => (
-          <article key={label} className="admin-overview-card">
-            <div className={`admin-overview-icon admin-overview-icon-${tone}`}>
-              <Icon />
+        {overviewCards.map((card) => (
+          <article key={card.label} className="admin-overview-card">
+            <div className={`admin-overview-icon admin-overview-icon-${card.tone}`}>
+              <card.Icon />
             </div>
-            <div className="admin-overview-value">{value}</div>
-            <div className="admin-overview-label">{label}</div>
+            <div className="admin-overview-value">{card.value}</div>
+            <div className="admin-overview-label">{card.label}</div>
           </article>
         ))}
       </div>

@@ -1,5 +1,5 @@
 ﻿import { startTransition, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext.jsx'
 
@@ -9,7 +9,6 @@ const initialForm = {
 }
 
 export default function Login() {
-  const location = useLocation()
   const navigate = useNavigate()
   const { login } = useAuth()
   const [formData, setFormData] = useState(initialForm)
