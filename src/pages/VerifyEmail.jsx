@@ -4,8 +4,10 @@ import api from '../services/api'
 
 export default function VerifyEmail() {
   const { token } = useParams()
-  const [status, setStatus] = useState('loading')
-  const [message, setMessage] = useState('Verifying your email address...')
+  const [status, setStatus] = useState(() => (token ? 'loading' : 'error'))
+  const [message, setMessage] = useState(() =>
+    token ? 'Verifying your email address...' : 'Missing verification token.',
+  )
 
   useEffect(() => {
     const verifyEmail = async () => {
@@ -22,11 +24,7 @@ export default function VerifyEmail() {
       }
     }
 
-    if (!token) {
-      setStatus('error')
-      setMessage('Missing verification token.')
-      return
-    }
+    if (!token) return
 
     verifyEmail()
   }, [token])

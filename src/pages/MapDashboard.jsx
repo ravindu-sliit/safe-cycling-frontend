@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -43,10 +42,6 @@ const STATS = [
 ]
 
 export default function MapDashboard() {
-  const [isClient, setIsClient] = useState(false)
-
-  useEffect(() => { setIsClient(true) }, [])
-
   return (
     <div className="dashboard-page">
       {/* Stats strip */}
@@ -75,32 +70,22 @@ export default function MapDashboard() {
             <div className="map-location-pill">London, UK</div>
           </div>
 
-          {!isClient ? (
-            <div className="map-loading">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="spin-icon spin-icon-lg">
-                <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity="0.25" />
-                <path d="M21 12a9 9 0 00-9-9" />
-              </svg>
-              <span>Loading map…</span>
-            </div>
-          ) : (
-            <MapContainer
-              center={[51.505, -0.09]}
-              zoom={13}
-              className="leaflet-map"
-            >
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              />
-              <Marker position={[51.505, -0.09]}>
-                <Popup>
-                  <strong>Safe Cycling HQ</strong><br />
-                  Central London marker
-                </Popup>
-              </Marker>
-            </MapContainer>
-          )}
+          <MapContainer
+            center={[51.505, -0.09]}
+            zoom={13}
+            className="leaflet-map"
+          >
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            />
+            <Marker position={[51.505, -0.09]}>
+              <Popup>
+                <strong>Safe Cycling HQ</strong><br />
+                Central London marker
+              </Popup>
+            </Marker>
+          </MapContainer>
         </div>
       </div>
     </div>

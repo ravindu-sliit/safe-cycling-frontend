@@ -454,6 +454,8 @@ img, svg { display: block; }
 .auth-select option {
   background: var(--bg-surface);
   color: var(--text-primary);
+}
+
 .textarea {
   resize: vertical;
   min-height: 96px;

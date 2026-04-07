@@ -43,20 +43,6 @@ function getCurrentUserId() {
   }
 }
 
-function formatCoordinates(location) {
-  const coords = location?.coordinates
-  if (!Array.isArray(coords) || coords.length !== 2) {
-    return 'Unknown location'
-  }
-
-  const [lng, lat] = coords
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return 'Unknown location'
-  }
-
-  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-}
-
 function formatDate(dateString) {
   if (!dateString) return 'Unknown date'
   const date = new Date(dateString)

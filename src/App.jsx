@@ -121,14 +121,14 @@ function Navbar() {
 
         <div className="topnav-right">
           <nav className="topnav-links">
-            {navItems.map(({ to, label, Icon }) => (
+            {navItems.map((item) => (
               <Link
-                key={to}
-                to={to}
-                className={`topnav-link${pathname === to ? ' active' : ''}`}
+                key={item.to}
+                to={item.to}
+                className={`topnav-link${pathname === item.to ? ' active' : ''}`}
               >
-                <Icon />
-                {label}
+                <item.Icon />
+                {item.label}
               </Link>
             ))}
           </nav>
@@ -151,15 +151,15 @@ function Navbar() {
 
       {mobileOpen && (
         <nav className="topnav-mobile">
-          {navItems.map(({ to, label, Icon }) => (
+          {navItems.map((item) => (
             <Link
-              key={to}
-              to={to}
-              className={`topnav-mobile-link${pathname === to ? ' active' : ''}`}
+              key={item.to}
+              to={item.to}
+              className={`topnav-mobile-link${pathname === item.to ? ' active' : ''}`}
               onClick={() => setMobileOpen(false)}
             >
-              <Icon />
-              {label}
+              <item.Icon />
+              {item.label}
             </Link>
           ))}
         </nav>
