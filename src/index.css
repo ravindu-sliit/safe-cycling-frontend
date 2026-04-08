@@ -3165,6 +3165,180 @@ label {
   word-break: break-word;
 }
 
+.admin-account-sidebar-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.admin-account-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.admin-account-avatar-shell {
+  width: 84px;
+  height: 84px;
+  border-radius: 24px;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.admin-account-avatar-image,
+.admin-account-avatar-fallback,
+.admin-account-photo-image,
+.admin-account-photo-fallback {
+  width: 100%;
+  height: 100%;
+}
+
+.admin-account-avatar-image,
+.admin-account-photo-image {
+  object-fit: cover;
+}
+
+.admin-account-avatar-fallback,
+.admin-account-photo-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.24), rgba(59, 130, 246, 0.24));
+}
+
+.admin-account-avatar-fallback {
+  font-size: 28px;
+}
+
+.admin-account-sidebar-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-account-sidebar-copy h1 {
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.admin-account-sidebar-copy p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.admin-account-panel-body {
+  padding: 0 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.admin-account-toggle-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-account-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.admin-account-toggle-row input {
+  margin-top: 3px;
+  accent-color: var(--brand-500);
+}
+
+.admin-account-toggle-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-account-toggle-row strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.admin-account-toggle-row > span > span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.admin-account-muted {
+  margin-top: 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.admin-account-inline-form {
+  margin-top: 16px;
+}
+
+.admin-account-photo-layout {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.admin-account-photo-frame {
+  width: 112px;
+  height: 112px;
+  border-radius: 28px;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.admin-account-photo-fallback {
+  font-size: 32px;
+}
+
+.admin-account-photo-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+}
+
+.admin-account-photo-copy strong {
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.admin-account-photo-copy p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.admin-account-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
 @media (max-width: 1200px) {
   .admin-dashboard-shell {
     grid-template-columns: 1fr;
@@ -3185,6 +3359,10 @@ label {
 
   .admin-profile-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-account-toggle-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -3263,6 +3441,18 @@ label {
   .admin-profile-grid {
     grid-template-columns: 1fr;
     padding: 0 18px 18px;
+  }
+
+  .admin-account-identity {
+    align-items: flex-start;
+  }
+
+  .admin-account-panel-body {
+    padding: 0 18px 18px;
+  }
+
+  .admin-account-photo-layout {
+    align-items: flex-start;
   }
 }
 
