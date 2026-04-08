@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import api from '../services/api'
+import { HAZARD_TYPE_OPTIONS } from '../constants/hazardTypes'
 
 const SEVERITY_CLASS = {
   high: 'badge-high',
@@ -935,11 +936,9 @@ export default function Hazards() {
                     <div>
                       <label htmlFor="type">Type</label>
                       <select id="type" name="type" className="input" value={formData.type} onChange={onFormChange}>
-                        <option value="pothole">Pothole</option>
-                        <option value="debris">Debris</option>
-                        <option value="lighting">Lighting</option>
-                        <option value="collision">Collision</option>
-                        <option value="other">Other</option>
+                        {HAZARD_TYPE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </div>
                     <div>
