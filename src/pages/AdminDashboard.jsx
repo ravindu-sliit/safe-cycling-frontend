@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext.jsx'
+import { HAZARD_TYPE_OPTIONS } from '../constants/hazardTypes'
 
 const DEFAULT_USER_FORM = {
   name: '',
@@ -83,6 +84,18 @@ const DEFAULT_ROUTE_FORM = {
   endLng: '',
   endLat: '',
   endAddress: '',
+}
+
+const DEFAULT_HAZARD_FORM = {
+  title: '',
+  description: '',
+  type: 'other',
+  severity: 'medium',
+  status: 'reported',
+  locationName: '',
+  longitude: '',
+  latitude: '',
+  imageUrl: '',
 }
 
 function normalizeRoleValue(value) {
@@ -171,6 +184,33 @@ function formatLocationSummary(location) {
 
 function formatHazardLocation(hazard) {
   return formatLocationSummary(hazard?.location)
+}
+
+function getHazardLocationValues(hazard) {
+  const coordinates = Array.isArray(hazard?.location?.coordinates) ? hazard.location.coordinates : []
+  const lng = Number(coordinates[0])
+  const lat = Number(coordinates[1])
+
+  return {
+    longitude: Number.isFinite(lng) ? String(lng) : '',
+    latitude: Number.isFinite(lat) ? String(lat) : '',
+  }
+}
+
+function buildHazardFormFromHazard(hazard) {
+  const { longitude, latitude } = getHazardLocationValues(hazard)
+
+  return {
+    title: hazard?.title || '',
+    description: hazard?.description || '',
+    type: hazard?.type || 'other',
+    severity: hazard?.severity || 'medium',
+    status: hazard?.status || 'reported',
+    locationName: hazard?.locationName || '',
+    longitude,
+    latitude,
+    imageUrl: hazard?.imageUrl || '',
+  }
 }
 
 function formatScore(value) {
@@ -301,6 +341,10 @@ export default function AdminDashboard() {
   const [deletingUserId, setDeletingUserId] = useState('')
   const [deletingHazardId, setDeletingHazardId] = useState('')
   const [deletingRouteId, setDeletingRouteId] = useState('')
+  const [hazardEditorMode, setHazardEditorMode] = useState('')
+  const [editingHazardId, setEditingHazardId] = useState('')
+  const [hazardForm, setHazardForm] = useState(DEFAULT_HAZARD_FORM)
+  const [isHazardSubmitting, setIsHazardSubmitting] = useState(false)
   const [routeEditorMode, setRouteEditorMode] = useState('')
   const [editingRouteId, setEditingRouteId] = useState('')
   const [routeForm, setRouteForm] = useState(DEFAULT_ROUTE_FORM)
@@ -378,6 +422,44 @@ export default function AdminDashboard() {
     setRouteEditorMode('')
     setEditingRouteId('')
     setRouteForm(DEFAULT_ROUTE_FORM)
+  }
+
+  const resetHazardEditor = () => {
+    setHazardEditorMode('')
+    setEditingHazardId('')
+    setHazardForm(DEFAULT_HAZARD_FORM)
+  }
+
+  const handleCreateHazardStart = () => {
+    setError('')
+    setSuccessMessage('')
+    setHazardForm(DEFAULT_HAZARD_FORM)
+    setEditingHazardId('')
+    setHazardEditorMode('create')
+    scrollToSection('hazards')
+  }
+
+  const handleEditHazardStart = (hazard) => {
+    setError('')
+    setSuccessMessage('')
+    setEditingHazardId(getHazardId(hazard))
+    setHazardForm(buildHazardFormFromHazard(hazard))
+    setHazardEditorMode('edit')
+    scrollToSection('hazards')
+  }
+
+  const handleHazardFormChange = (event) => {
+    const { name, value } = event.target
+    setHazardForm((current) => ({
+      ...current,
+      [name]: value,
+    }))
+  }
+
+  const handleHazardCancelEditor = () => {
+    setError('')
+    setSuccessMessage('')
+    resetHazardEditor()
   }
 
   const handleEditRouteStart = (route) => {
@@ -671,6 +753,82 @@ export default function AdminDashboard() {
       setError(requestError.response?.data?.message || 'Unable to delete hazard report right now.')
     } finally {
       setDeletingHazardId('')
+    }
+  }
+
+  const handleHazardSubmit = async (event) => {
+    event.preventDefault()
+    setError('')
+    setSuccessMessage('')
+
+    if (!hazardForm.title.trim()) {
+      setError('Hazard title is required.')
+      return
+    }
+
+    if (!hazardForm.description.trim()) {
+      setError('Hazard description is required.')
+      return
+    }
+
+    const longitude = Number(hazardForm.longitude)
+    const latitude = Number(hazardForm.latitude)
+
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+      setError('Longitude and latitude must be valid numbers.')
+      return
+    }
+
+    if (longitude < -180 || longitude > 180) {
+      setError('Longitude must be between -180 and 180.')
+      return
+    }
+
+    if (latitude < -90 || latitude > 90) {
+      setError('Latitude must be between -90 and 90.')
+      return
+    }
+
+    if (hazardEditorMode === 'edit' && !editingHazardId) {
+      setError('Select a hazard to edit first.')
+      return
+    }
+
+    setIsHazardSubmitting(true)
+
+    try {
+      const payload = {
+        title: hazardForm.title.trim(),
+        description: hazardForm.description.trim(),
+        type: hazardForm.type,
+        severity: hazardForm.severity,
+        status: hazardForm.status,
+        locationName: hazardForm.locationName.trim(),
+        imageUrl: hazardForm.imageUrl.trim(),
+        location: {
+          type: 'Point',
+          coordinates: [longitude, latitude],
+        },
+      }
+
+      if (hazardEditorMode === 'create') {
+        await api.post('/hazards', payload)
+      } else {
+        await api.put(`/hazards/${editingHazardId}`, payload)
+      }
+
+      const refreshedHazardsResponse = await api.get('/hazards')
+      const nextHazards = Array.isArray(refreshedHazardsResponse?.data) ? refreshedHazardsResponse.data : []
+      setHazards(nextHazards)
+      setSuccessMessage(hazardEditorMode === 'create' ? 'Hazard created successfully.' : 'Hazard updated successfully.')
+      resetHazardEditor()
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.message
+          || (hazardEditorMode === 'create' ? 'Unable to create hazard right now.' : 'Unable to update hazard right now.'),
+      )
+    } finally {
+      setIsHazardSubmitting(false)
     }
   }
 
@@ -1182,12 +1340,174 @@ export default function AdminDashboard() {
                 <h2>Hazard Reports</h2>
                 <p>Live rider-reported hazards pulled from the backend database.</p>
               </div>
-              <div className="admin-data-summary-row">
-                <span className="admin-data-summary-pill">{hazards.length} total</span>
-                <span className="admin-data-summary-pill">{highSeverityHazards} high severity</span>
-                <span className="admin-data-summary-pill">{resolvedHazards} resolved</span>
+              <div className="admin-table-controls">
+                <div className="admin-data-summary-row">
+                  <span className="admin-data-summary-pill">{hazards.length} total</span>
+                  <span className="admin-data-summary-pill">{highSeverityHazards} high severity</span>
+                  <span className="admin-data-summary-pill">{resolvedHazards} resolved</span>
+                </div>
+                <button type="button" className="admin-primary-button" onClick={handleCreateHazardStart}>
+                  Add Hazard
+                </button>
               </div>
             </div>
+
+            {hazardEditorMode ? (
+              <div className="admin-editor-panel">
+                <div className="admin-editor-header">
+                  <div>
+                    <h3 className="admin-editor-title">
+                      {hazardEditorMode === 'create' ? 'Add Hazard' : 'Edit Hazard'}
+                    </h3>
+                    <p className="admin-editor-subtitle">
+                      Create a hazard manually or update its longitude and latitude coordinates.
+                    </p>
+                  </div>
+                </div>
+
+                <form className="admin-editor-form" onSubmit={handleHazardSubmit}>
+                  <label className="admin-editor-field admin-editor-field-full">
+                    <span>Title</span>
+                    <input
+                      type="text"
+                      name="title"
+                      className="admin-editor-input"
+                      value={hazardForm.title}
+                      onChange={handleHazardFormChange}
+                      placeholder="Pothole near bridge entrance"
+                      required
+                    />
+                  </label>
+
+                  <label className="admin-editor-field admin-editor-field-full">
+                    <span>Description</span>
+                    <textarea
+                      name="description"
+                      className="admin-editor-input admin-editor-textarea"
+                      value={hazardForm.description}
+                      onChange={handleHazardFormChange}
+                      placeholder="Describe the hazard details"
+                      rows={4}
+                      required
+                    />
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Type</span>
+                    <select
+                      name="type"
+                      className="admin-editor-input admin-filter-select"
+                      value={hazardForm.type}
+                      onChange={handleHazardFormChange}
+                    >
+                      {HAZARD_TYPE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Severity</span>
+                    <select
+                      name="severity"
+                      className="admin-editor-input admin-filter-select"
+                      value={hazardForm.severity}
+                      onChange={handleHazardFormChange}
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Status</span>
+                    <select
+                      name="status"
+                      className="admin-editor-input admin-filter-select"
+                      value={hazardForm.status}
+                      onChange={handleHazardFormChange}
+                    >
+                      <option value="reported">Reported</option>
+                      <option value="pending">Pending</option>
+                      <option value="resolved">Resolved</option>
+                    </select>
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Location Name</span>
+                    <input
+                      type="text"
+                      name="locationName"
+                      className="admin-editor-input"
+                      value={hazardForm.locationName}
+                      onChange={handleHazardFormChange}
+                      placeholder="Street, city, or landmark"
+                    />
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Longitude</span>
+                    <input
+                      type="number"
+                      name="longitude"
+                      className="admin-editor-input"
+                      value={hazardForm.longitude}
+                      onChange={handleHazardFormChange}
+                      step="any"
+                      placeholder="79.8612"
+                      required
+                    />
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Latitude</span>
+                    <input
+                      type="number"
+                      name="latitude"
+                      className="admin-editor-input"
+                      value={hazardForm.latitude}
+                      onChange={handleHazardFormChange}
+                      step="any"
+                      placeholder="6.9271"
+                      required
+                    />
+                  </label>
+
+                  <label className="admin-editor-field admin-editor-field-full">
+                    <span>Image URL (optional)</span>
+                    <input
+                      type="url"
+                      name="imageUrl"
+                      className="admin-editor-input"
+                      value={hazardForm.imageUrl}
+                      onChange={handleHazardFormChange}
+                      placeholder="https://ik.imagekit.io/..."
+                    />
+                  </label>
+
+                  <div className="admin-editor-actions">
+                    <button type="submit" className="admin-primary-button" disabled={isHazardSubmitting}>
+                      {isHazardSubmitting
+                        ? hazardEditorMode === 'create'
+                          ? 'Creating...'
+                          : 'Saving...'
+                        : hazardEditorMode === 'create'
+                          ? 'Create Hazard'
+                          : 'Save Changes'}
+                    </button>
+                    <button
+                      type="button"
+                      className="admin-secondary-button"
+                      onClick={handleHazardCancelEditor}
+                      disabled={isHazardSubmitting}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : null}
 
             <div className="admin-table-wrap">
               <table className="admin-user-table">
@@ -1246,6 +1566,13 @@ export default function AdminDashboard() {
                         <td>{formatDate(hazard.createdAt)}</td>
                         <td>
                           <div className="admin-action-group">
+                            <button
+                              type="button"
+                              className="admin-action-button"
+                              onClick={() => handleEditHazardStart(hazard)}
+                            >
+                              Edit
+                            </button>
                             <button
                               type="button"
                               className="admin-action-button admin-action-button-danger"
