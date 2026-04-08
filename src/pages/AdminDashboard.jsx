@@ -54,6 +54,10 @@ function getUserId(user) {
   return user?._id || user?.id || user?.email || ''
 }
 
+function getRouteId(route) {
+  return route?._id || route?.id || ''
+}
+
 function normalizeRoleValue(value) {
   const role = String(value || 'user').toLowerCase()
   return role === 'organisation' ? 'organization' : role
@@ -211,6 +215,16 @@ function IconSpark() {
   )
 }
 
+function IconMap() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21" />
+      <line x1="9" y1="3" x2="9" y2="18" />
+      <line x1="15" y1="6" x2="15" y2="21" />
+    </svg>
+  )
+}
+
 function IconGrid() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -258,6 +272,7 @@ export default function AdminDashboard() {
   const [form, setForm] = useState(DEFAULT_USER_FORM)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [deletingUserId, setDeletingUserId] = useState('')
+  const [deletingRouteId, setDeletingRouteId] = useState('')
   const [activeAdminSection, setActiveAdminSection] = useState('overview')
   const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLowerCase())
   const currentUserId = getUserId(currentUser)
@@ -536,6 +551,30 @@ export default function AdminDashboard() {
     }
   }
 
+  const handleDeleteRoute = async (route) => {
+    const targetRouteId = getRouteId(route)
+    if (!targetRouteId) return
+
+    const routeName = route?.title || 'this route'
+    const confirmed = window.confirm(`Delete ${routeName}? This cannot be undone.`)
+    if (!confirmed) return
+
+    setError('')
+    setSuccessMessage('')
+    setDeletingRouteId(targetRouteId)
+
+    try {
+      await api.delete(`/routes/${targetRouteId}`)
+      const refreshedRoutesResponse = await api.get('/routes')
+      setRoutes(normalizeRoutesPayload(refreshedRoutesResponse?.data))
+      setSuccessMessage('Route deleted successfully.')
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Unable to delete route right now.')
+    } finally {
+      setDeletingRouteId('')
+    }
+  }
+
   const overviewCards = [
     {
       label: 'Total Users',
@@ -623,6 +662,15 @@ export default function AdminDashboard() {
       Icon: IconRoute,
       onClick: () => scrollToSection('routes'),
       isActive: activeAdminSection === 'routes',
+    },
+    {
+      id: 'map',
+      label: 'View Map',
+      note: 'Create and manage routes visually on the map.',
+      badge: 'Interactive',
+      Icon: IconMap,
+      onClick: () => navigate('/admin/map'),
+      isActive: false,
     },
     {
       id: 'reviews',
@@ -1063,24 +1111,29 @@ export default function AdminDashboard() {
                     <th>Distance</th>
                     <th>Eco Score</th>
                     <th>Created</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {isWorkspaceLoading ? (
                     <tr>
-                      <td colSpan="6" className="admin-table-empty">
+                      <td colSpan="7" className="admin-table-empty">
                         Loading routes...
                       </td>
                     </tr>
                   ) : recentRoutes.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="admin-table-empty">
+                      <td colSpan="7" className="admin-table-empty">
                         No route records found in the backend database.
                       </td>
                     </tr>
                   ) : (
-                    recentRoutes.map((route) => (
-                      <tr key={route._id}>
+                    recentRoutes.map((route) => {
+                      const routeId = getRouteId(route)
+                      const isDeletingRoute = deletingRouteId === routeId
+
+                      return (
+                      <tr key={routeId || route.title}>
                         <td>
                           <div className="admin-cell-stack">
                             <strong>{route.title || 'Untitled route'}</strong>
@@ -1092,8 +1145,27 @@ export default function AdminDashboard() {
                         <td>{formatScore(route.distance)} km</td>
                         <td>{formatScore(route.ecoScore)}</td>
                         <td>{formatDate(route.createdAt)}</td>
+                        <td>
+                          <div className="admin-row-actions">
+                            <button
+                              type="button"
+                              className="admin-action-button"
+                              onClick={() => navigate('/admin/map', { state: { routeId: routeId } })}
+                            >
+                              View on Map
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-action-button admin-action-button-danger"
+                              onClick={() => handleDeleteRoute(route)}
+                              disabled={Boolean(isDeletingRoute) || isWorkspaceLoading}
+                            >
+                              {isDeletingRoute ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </div>
+                        </td>
                       </tr>
-                    ))
+                    )})
                   )}
                 </tbody>
               </table>
