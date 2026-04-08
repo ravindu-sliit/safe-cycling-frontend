@@ -54,6 +54,33 @@ function getUserId(user) {
   return user?._id || user?.id || user?.email || ''
 }
 
+function getRouteId(route) {
+  return route?._id || route?.id || ''
+}
+
+function getRouteLocationValues(location) {
+  const coordinates = Array.isArray(location?.coordinates) ? location.coordinates : []
+  const lng = Number(coordinates[0])
+  const lat = Number(coordinates[1])
+
+  return {
+    lng: Number.isFinite(lng) ? String(lng) : '',
+    lat: Number.isFinite(lat) ? String(lat) : '',
+    address: location?.address || '',
+  }
+}
+
+const DEFAULT_ROUTE_FORM = {
+  title: '',
+  ecoScore: '',
+  startLng: '',
+  startLat: '',
+  startAddress: '',
+  endLng: '',
+  endLat: '',
+  endAddress: '',
+}
+
 function normalizeRoleValue(value) {
   const role = String(value || 'user').toLowerCase()
   return role === 'organisation' ? 'organization' : role
@@ -211,6 +238,16 @@ function IconSpark() {
   )
 }
 
+function IconMap() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21" />
+      <line x1="9" y1="3" x2="9" y2="18" />
+      <line x1="15" y1="6" x2="15" y2="21" />
+    </svg>
+  )
+}
+
 function IconGrid() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -258,6 +295,11 @@ export default function AdminDashboard() {
   const [form, setForm] = useState(DEFAULT_USER_FORM)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [deletingUserId, setDeletingUserId] = useState('')
+  const [deletingRouteId, setDeletingRouteId] = useState('')
+  const [routeEditorMode, setRouteEditorMode] = useState('')
+  const [editingRouteId, setEditingRouteId] = useState('')
+  const [routeForm, setRouteForm] = useState(DEFAULT_ROUTE_FORM)
+  const [isRouteSubmitting, setIsRouteSubmitting] = useState(false)
   const [activeAdminSection, setActiveAdminSection] = useState('overview')
   const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLowerCase())
   const currentUserId = getUserId(currentUser)
@@ -325,6 +367,48 @@ export default function AdminDashboard() {
     setError('')
     setSuccessMessage('')
     resetEditor()
+  }
+
+  const resetRouteEditor = () => {
+    setRouteEditorMode('')
+    setEditingRouteId('')
+    setRouteForm(DEFAULT_ROUTE_FORM)
+  }
+
+  const handleEditRouteStart = (route) => {
+    setError('')
+    setSuccessMessage('')
+    setEditingRouteId(getRouteId(route))
+
+    const startLocation = getRouteLocationValues(route?.startLocation)
+    const endLocation = getRouteLocationValues(route?.endLocation)
+
+    setRouteForm({
+      title: route?.title || '',
+      ecoScore: route?.ecoScore?.toString?.() || '',
+      startLng: startLocation.lng,
+      startLat: startLocation.lat,
+      startAddress: startLocation.address,
+      endLng: endLocation.lng,
+      endLat: endLocation.lat,
+      endAddress: endLocation.address,
+    })
+    setRouteEditorMode('edit')
+    scrollToSection('routes')
+  }
+
+  const handleRouteFormChange = (event) => {
+    const { name, value } = event.target
+    setRouteForm((current) => ({
+      ...current,
+      [name]: value,
+    }))
+  }
+
+  const handleRouteCancelEditor = () => {
+    setError('')
+    setSuccessMessage('')
+    resetRouteEditor()
   }
 
   useEffect(() => {
@@ -536,6 +620,94 @@ export default function AdminDashboard() {
     }
   }
 
+  const handleDeleteRoute = async (route) => {
+    const targetRouteId = getRouteId(route)
+    if (!targetRouteId) return
+
+    const routeName = route?.title || 'this route'
+    const confirmed = window.confirm(`Delete ${routeName}? This cannot be undone.`)
+    if (!confirmed) return
+
+    setError('')
+    setSuccessMessage('')
+    setDeletingRouteId(targetRouteId)
+
+    try {
+      await api.delete(`/routes/${targetRouteId}`)
+      const refreshedRoutesResponse = await api.get('/routes')
+      setRoutes(normalizeRoutesPayload(refreshedRoutesResponse?.data))
+      setSuccessMessage('Route deleted successfully.')
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Unable to delete route right now.')
+    } finally {
+      setDeletingRouteId('')
+    }
+  }
+
+  const handleRouteSubmit = async (event) => {
+    event.preventDefault()
+    setError('')
+    setSuccessMessage('')
+
+    if (!editingRouteId) {
+      setError('Select a route to edit first.')
+      return
+    }
+
+    if (!routeForm.title.trim()) {
+      setError('Route title is required.')
+      return
+    }
+
+    if (!routeForm.ecoScore || Number(routeForm.ecoScore) < 1 || Number(routeForm.ecoScore) > 10) {
+      setError('Eco score must be between 1 and 10.')
+      return
+    }
+
+    const startLng = Number(routeForm.startLng)
+    const startLat = Number(routeForm.startLat)
+    const endLng = Number(routeForm.endLng)
+    const endLat = Number(routeForm.endLat)
+
+    if (![startLng, startLat, endLng, endLat].every((value) => Number.isFinite(value))) {
+      setError('Start and end coordinates must be valid numbers.')
+      return
+    }
+
+    if (!routeForm.startAddress.trim() || !routeForm.endAddress.trim()) {
+      setError('Start and end addresses are required.')
+      return
+    }
+
+    setIsRouteSubmitting(true)
+
+    try {
+      await api.put(`/routes/${editingRouteId}`, {
+        title: routeForm.title.trim(),
+        ecoScore: Number(routeForm.ecoScore),
+        startLocation: {
+          type: 'Point',
+          coordinates: [startLng, startLat],
+          address: routeForm.startAddress.trim(),
+        },
+        endLocation: {
+          type: 'Point',
+          coordinates: [endLng, endLat],
+          address: routeForm.endAddress.trim(),
+        },
+      })
+
+      const refreshedRoutesResponse = await api.get('/routes')
+      setRoutes(normalizeRoutesPayload(refreshedRoutesResponse?.data))
+      setSuccessMessage('Route updated successfully.')
+      resetRouteEditor()
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Unable to update route right now.')
+    } finally {
+      setIsRouteSubmitting(false)
+    }
+  }
+
   const overviewCards = [
     {
       label: 'Total Users',
@@ -623,6 +795,15 @@ export default function AdminDashboard() {
       Icon: IconRoute,
       onClick: () => scrollToSection('routes'),
       isActive: activeAdminSection === 'routes',
+    },
+    {
+      id: 'map',
+      label: 'View Map',
+      note: 'Create and manage routes visually on the map.',
+      badge: 'Interactive',
+      Icon: IconMap,
+      onClick: () => navigate('/admin/map'),
+      isActive: false,
     },
     {
       id: 'reviews',
@@ -1063,24 +1244,29 @@ export default function AdminDashboard() {
                     <th>Distance</th>
                     <th>Eco Score</th>
                     <th>Created</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {isWorkspaceLoading ? (
                     <tr>
-                      <td colSpan="6" className="admin-table-empty">
+                      <td colSpan="7" className="admin-table-empty">
                         Loading routes...
                       </td>
                     </tr>
                   ) : recentRoutes.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="admin-table-empty">
+                      <td colSpan="7" className="admin-table-empty">
                         No route records found in the backend database.
                       </td>
                     </tr>
                   ) : (
-                    recentRoutes.map((route) => (
-                      <tr key={route._id}>
+                    recentRoutes.map((route) => {
+                      const routeId = getRouteId(route)
+                      const isDeletingRoute = deletingRouteId === routeId
+
+                      return (
+                      <tr key={routeId || route.title}>
                         <td>
                           <div className="admin-cell-stack">
                             <strong>{route.title || 'Untitled route'}</strong>
@@ -1092,13 +1278,181 @@ export default function AdminDashboard() {
                         <td>{formatScore(route.distance)} km</td>
                         <td>{formatScore(route.ecoScore)}</td>
                         <td>{formatDate(route.createdAt)}</td>
+                        <td>
+                          <div className="admin-row-actions">
+                            <button
+                              type="button"
+                              className="admin-action-button"
+                              onClick={() => navigate('/admin/map', { state: { routeId: routeId } })}
+                            >
+                              View on Map
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-action-button"
+                              onClick={() => navigate('/admin/map', { state: { routeId: routeId, mode: 'edit' } })}
+                            >
+                              Edit on Map
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-action-button"
+                              onClick={() => handleEditRouteStart(route)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-action-button admin-action-button-danger"
+                              onClick={() => handleDeleteRoute(route)}
+                              disabled={Boolean(isDeletingRoute) || isWorkspaceLoading}
+                            >
+                              {isDeletingRoute ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </div>
+                        </td>
                       </tr>
-                    ))
+                    )})
                   )}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {routeEditorMode ? (
+            <div className="admin-editor-panel">
+              <div className="admin-editor-header">
+                <div>
+                  <h3 className="admin-editor-title">Edit Route</h3>
+                  <p className="admin-editor-subtitle">
+                    Update title, start and end locations, or eco score. Distance and path geometry will be regenerated by the backend.
+                  </p>
+                </div>
+              </div>
+
+              <form className="admin-editor-form" onSubmit={handleRouteSubmit}>
+                <label className="admin-editor-field">
+                  <span>Route Title</span>
+                  <input
+                    type="text"
+                    name="title"
+                    className="admin-editor-input"
+                    value={routeForm.title}
+                    onChange={handleRouteFormChange}
+                    placeholder="Enter route title"
+                    required
+                  />
+                </label>
+
+                <label className="admin-editor-field">
+                  <span>Eco Score</span>
+                  <input
+                    type="number"
+                    name="ecoScore"
+                    className="admin-editor-input"
+                    value={routeForm.ecoScore}
+                    onChange={handleRouteFormChange}
+                    placeholder="1 to 10"
+                    min="1"
+                    max="10"
+                    step="1"
+                    required
+                  />
+                </label>
+
+                <label className="admin-editor-field">
+                  <span>Start Longitude</span>
+                  <input
+                    type="number"
+                    name="startLng"
+                    className="admin-editor-input"
+                    value={routeForm.startLng}
+                    onChange={handleRouteFormChange}
+                    placeholder="Longitude"
+                    step="any"
+                    required
+                  />
+                </label>
+
+                <label className="admin-editor-field">
+                  <span>Start Latitude</span>
+                  <input
+                    type="number"
+                    name="startLat"
+                    className="admin-editor-input"
+                    value={routeForm.startLat}
+                    onChange={handleRouteFormChange}
+                    placeholder="Latitude"
+                    step="any"
+                    required
+                  />
+                </label>
+
+                <label className="admin-editor-field" style={{ gridColumn: '1 / -1' }}>
+                  <span>Start Address</span>
+                  <input
+                    type="text"
+                    name="startAddress"
+                    className="admin-editor-input"
+                    value={routeForm.startAddress}
+                    onChange={handleRouteFormChange}
+                    placeholder="Start address"
+                    required
+                  />
+                </label>
+
+                <label className="admin-editor-field">
+                  <span>End Longitude</span>
+                  <input
+                    type="number"
+                    name="endLng"
+                    className="admin-editor-input"
+                    value={routeForm.endLng}
+                    onChange={handleRouteFormChange}
+                    placeholder="Longitude"
+                    step="any"
+                    required
+                  />
+                </label>
+
+                <label className="admin-editor-field">
+                  <span>End Latitude</span>
+                  <input
+                    type="number"
+                    name="endLat"
+                    className="admin-editor-input"
+                    value={routeForm.endLat}
+                    onChange={handleRouteFormChange}
+                    placeholder="Latitude"
+                    step="any"
+                    required
+                  />
+                </label>
+
+                <label className="admin-editor-field" style={{ gridColumn: '1 / -1' }}>
+                  <span>End Address</span>
+                  <input
+                    type="text"
+                    name="endAddress"
+                    className="admin-editor-input"
+                    value={routeForm.endAddress}
+                    onChange={handleRouteFormChange}
+                    placeholder="End address"
+                    required
+                  />
+                </label>
+
+                <div className="admin-editor-actions">
+                  <button type="submit" className="admin-primary-button" disabled={isRouteSubmitting}>
+                    {isRouteSubmitting ? 'Updating Route...' : 'Update Route'}
+                  </button>
+                  <button type="button" className="admin-secondary-button" onClick={handleRouteCancelEditor}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : null}
 
           <div ref={reviewsSectionRef} className="admin-management-panel">
             <div className="admin-management-header">
