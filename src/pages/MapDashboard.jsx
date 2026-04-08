@@ -1,14 +1,9 @@
-import { useEffect, useEffectEvent } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { MapContainer, Marker, Popup, TileLayer } from 'react-leaflet'
-import { useEffect, useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, Polyline, Popup, Marker, useMap, useMapEvents } from 'react-leaflet'
-import { useLocation } from 'react-router-dom'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import 'leaflet/dist/leaflet.css'
-import api from '../services/api'
-import { useAuth } from '../context/AuthContext.jsx'
 
 function normalizePathCoordinates(pathCoordinates) {
   if (!Array.isArray(pathCoordinates)) return []
@@ -124,9 +119,13 @@ const mergeStoredUser = (currentUser = {}, profile = {}) => {
 }
 
 export default function MapDashboard() {
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const { isAuthenticated, user, updateUser } = useAuth()
   const verificationBanner = searchParams.get('verified') === '1'
+  const isAdmin = user?.role === 'admin' || user?.role === 'organization'
+  const focusRouteId = location.state?.routeId || ''
+  const focusRouteMode = location.state?.mode || ''
 
   const syncUser = useEffectEvent((profile) => {
     updateUser(mergeStoredUser(user, profile))
@@ -166,38 +165,6 @@ export default function MapDashboard() {
       window.clearTimeout(removeBannerTimer)
     }
   }, [isAuthenticated, searchParams, setSearchParams, verificationBanner])
-
-  return (
-    <div className="dashboard-page">
-      {verificationBanner ? (
-        <div className="dashboard-banner dashboard-banner--success">
-          <div className="dashboard-banner-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
-          </div>
-          <div>
-            <strong>Email verified</strong>
-            <p>Your account is ready to use. Welcome back to Safe Cycling.</p>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="stats-grid">
-        {STATS.map((stat) => (
-          <div key={stat.label} className="stat-tile">
-            <div className={`stat-icon ${stat.cls}`}>{stat.icon}</div>
-            <div>
-              <div className="stat-value">{stat.value}</div>
-              <div className="stat-label">{stat.label}</div>
-              <div className="stat-delta">{stat.delta}</div>
-            </div>
-  const location = useLocation()
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin' || user?.role === 'organization'
-  const focusRouteId = location.state?.routeId || ''
-  const focusRouteMode = location.state?.mode || ''
 
   const [routes, setRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -544,29 +511,12 @@ export default function MapDashboard() {
             <div className="map-location-pill ml-auto">Active Routes: {routes.length}</div>
           </div>
 
-      <div className="map-section">
-        <div className="map-container">
-          <div className="map-overlay">
-            <div className="map-live-badge">
-              <div className="map-live-dot" />
-              <span>Live Map</span>
+          {verificationBanner ? (
+            <div className="absolute top-4 left-1/2 z-[1000] -translate-x-1/2 rounded-xl border border-green-500/30 bg-green-500/15 px-4 py-2 text-sm text-green-200 backdrop-blur-sm">
+              Email verified. Welcome back to Safe Cycling.
             </div>
-            <div className="map-location-pill">London, UK</div>
-          </div>
+          ) : null}
 
-          <MapContainer center={[51.505, -0.09]} zoom={13} className="leaflet-map">
-            <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            />
-            <Marker position={[51.505, -0.09]}>
-              <Popup>
-                <strong>Safe Cycling HQ</strong>
-                <br />
-                Central London marker
-              </Popup>
-            </Marker>
-          </MapContainer>
           <div className="map-live-badge absolute bottom-4 left-4 z-[1000] pointer-events-none">
             <div className="map-live-dot" />
             <span>Live Map</span>
