@@ -58,6 +58,10 @@ function getRouteId(route) {
   return route?._id || route?.id || ''
 }
 
+function getHazardId(hazard) {
+  return hazard?._id || hazard?.id || ''
+}
+
 function getRouteLocationValues(location) {
   const coordinates = Array.isArray(location?.coordinates) ? location.coordinates : []
   const lng = Number(coordinates[0])
@@ -295,6 +299,7 @@ export default function AdminDashboard() {
   const [form, setForm] = useState(DEFAULT_USER_FORM)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [deletingUserId, setDeletingUserId] = useState('')
+  const [deletingHazardId, setDeletingHazardId] = useState('')
   const [deletingRouteId, setDeletingRouteId] = useState('')
   const [routeEditorMode, setRouteEditorMode] = useState('')
   const [editingRouteId, setEditingRouteId] = useState('')
@@ -641,6 +646,31 @@ export default function AdminDashboard() {
       setError(requestError.response?.data?.message || 'Unable to delete route right now.')
     } finally {
       setDeletingRouteId('')
+    }
+  }
+
+  const handleDeleteHazard = async (hazard) => {
+    const targetHazardId = getHazardId(hazard)
+    if (!targetHazardId) return
+
+    const hazardName = hazard?.title || 'this hazard report'
+    const confirmed = window.confirm(`Delete ${hazardName}? This cannot be undone.`)
+    if (!confirmed) return
+
+    setError('')
+    setSuccessMessage('')
+    setDeletingHazardId(targetHazardId)
+
+    try {
+      await api.delete(`/hazards/${targetHazardId}`)
+      const refreshedHazardsResponse = await api.get('/hazards')
+      const nextHazards = Array.isArray(refreshedHazardsResponse?.data) ? refreshedHazardsResponse.data : []
+      setHazards(nextHazards)
+      setSuccessMessage('Hazard report deleted successfully.')
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Unable to delete hazard report right now.')
+    } finally {
+      setDeletingHazardId('')
     }
   }
 
@@ -1170,24 +1200,25 @@ export default function AdminDashboard() {
                     <th>Reporter</th>
                     <th>Location</th>
                     <th>Created</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {isWorkspaceLoading ? (
                     <tr>
-                      <td colSpan="7" className="admin-table-empty">
+                      <td colSpan="8" className="admin-table-empty">
                         Loading hazard reports...
                       </td>
                     </tr>
                   ) : recentHazards.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="admin-table-empty">
+                      <td colSpan="8" className="admin-table-empty">
                         No hazard reports found in the backend database.
                       </td>
                     </tr>
                   ) : (
                     recentHazards.map((hazard) => (
-                      <tr key={hazard._id}>
+                      <tr key={getHazardId(hazard) || `${hazard?.title || 'hazard'}-${hazard?.createdAt || ''}`}>
                         <td>
                           <div className="admin-cell-stack">
                             <strong>{hazard.title || 'Untitled hazard'}</strong>
@@ -1213,6 +1244,18 @@ export default function AdminDashboard() {
                         </td>
                         <td>{formatHazardLocation(hazard)}</td>
                         <td>{formatDate(hazard.createdAt)}</td>
+                        <td>
+                          <div className="admin-action-group">
+                            <button
+                              type="button"
+                              className="admin-action-button admin-action-button-danger"
+                              onClick={() => handleDeleteHazard(hazard)}
+                              disabled={deletingHazardId === getHazardId(hazard)}
+                            >
+                              {deletingHazardId === getHazardId(hazard) ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))
                   )}

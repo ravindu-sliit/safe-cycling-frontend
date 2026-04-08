@@ -327,20 +327,19 @@ svg {
 .app-shell {
   display: flex;
   flex-direction: column;
-  height: 100vh;
   min-height: 100vh;
   width: 100%;
 }
 
 .main-content {
-  flex: 1;
-  min-height: 0;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   width: 100%;
 }
 
 .site-footer {
+  flex-shrink: 0;
   position: relative;
   overflow: hidden;
   border-top: 1px solid var(--border);
@@ -544,6 +543,10 @@ svg {
   flex: 1;
   padding: 32px 36px;
   width: 100%;
+}
+
+.hazards-page {
+  padding-bottom: 64px;
 }
 
 .page-header {
@@ -851,6 +854,10 @@ label {
     grid-template-columns: 1fr;
   }
 
+  .hazard-details-grid {
+    grid-template-columns: 1fr;
+  }
+
   .topnav {
     position: sticky;
     height: auto;
@@ -1052,6 +1059,72 @@ label {
   line-height: 1.4;
 }
 
+.card-title-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hazard-actions-menu {
+  position: relative;
+}
+
+.hazard-menu-trigger {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hazard-menu-trigger:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.hazard-menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 128px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: #111827;
+  box-shadow: var(--shadow-md);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hazard-menu-popover button {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  font-size: 12px;
+  padding: 7px 8px;
+  border-radius: 6px;
+}
+
+.hazard-menu-popover button:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.hazard-menu-popover button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.hazard-menu-popover .hazard-menu-delete {
+  color: #fca5a5;
+}
+
 .card-desc {
   font-size: 13px;
   color: var(--text-secondary);
@@ -1087,6 +1160,36 @@ label {
   color: var(--text-muted);
 }
 
+.community-update-label {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 10px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.hazard-latest-comment {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.45);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.hazard-latest-comment strong {
+  color: var(--text-primary);
+  margin-right: 4px;
+}
+
 /* Card footer */
 .card-footer {
   padding: 12px 24px;
@@ -1094,6 +1197,8 @@ label {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* Hazard grid */
@@ -1140,6 +1245,120 @@ label {
   padding: 18px;
 }
 
+.hazard-details-modal {
+  width: min(920px, 100%);
+}
+
+.hazard-details-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.hazard-details-section {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px;
+}
+
+.hazard-details-section h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.hazard-image-history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.hazard-history-item {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.hazard-history-image {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  display: block;
+}
+
+.hazard-history-meta {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hazard-history-meta strong {
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.hazard-history-meta span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.hazard-time-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.hazard-comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.hazard-comment-item {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.hazard-comment-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.hazard-comment-head strong {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.hazard-comment-head span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.hazard-comment-item p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
@@ -1179,6 +1398,12 @@ label {
   gap: 8px;
   padding: 10px 12px;
   font-size: 13px;
+}
+
+.location-coordinates {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .hazard-image-preview-wrap {
