@@ -6,6 +6,7 @@ import ForgotPassword from './pages/ForgotPassword.jsx'
 import ResetPassword from './pages/ResetPassword.jsx'
 import VerifyEmail from './pages/VerifyEmail.jsx'
 import Profile from './pages/Profile.jsx'
+import AdminProfile from './pages/AdminProfile.jsx'
 import AdminDashboard from './pages/AdminDashboard.jsx'
 import MapDashboard from './pages/MapDashboard.jsx'
 import Hazards from './pages/Hazards.jsx'
@@ -100,12 +101,13 @@ function Navbar() {
   }
 
   const dashboardPath = user?.role === 'admin' ? '/admin/dashboard' : '/dashboard'
+  const accountPath = user?.role === 'admin' ? '/admin/profile' : '/profile'
   const navItems = [
     { to: dashboardPath, label: 'Dashboard', Icon: IconMap },
     ...(user?.role === 'admin' ? [{ to: '/admin/map', label: 'Map', Icon: IconMap }] : []),
     { to: '/hazards', label: 'Hazards', Icon: IconAlert },
     { to: '/reviews', label: 'Reviews', Icon: IconStar },
-    { to: '/profile', label: 'Account', Icon: IconUser },
+    { to: accountPath, label: 'Account', Icon: IconUser },
   ]
 
   return (
@@ -179,7 +181,10 @@ function App() {
     location.pathname === '/forgot-password' ||
     location.pathname.startsWith('/reset-password/') ||
     location.pathname.startsWith('/verify-email/')
-  const hideNavbar = isAuthPage || location.pathname === '/admin/dashboard'
+  const hideNavbar =
+    isAuthPage ||
+    location.pathname === '/admin/dashboard' ||
+    location.pathname === '/admin/profile'
 
   return (
     <div className="app-shell">
@@ -205,6 +210,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole="admin">
                 <MapDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/profile"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <AdminProfile />
               </ProtectedRoute>
             }
           />
@@ -235,9 +248,13 @@ function App() {
           <Route
             path="/profile"
             element={
-              <ProtectedRoute>
-                <Profile />
-              </ProtectedRoute>
+              user?.role === 'admin' ? (
+                <Navigate to="/admin/profile" replace />
+              ) : (
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              )
             }
           />
           <Route path="*" element={<Navigate to={isAuthenticated ? dashboardPath : '/login'} replace />} />
