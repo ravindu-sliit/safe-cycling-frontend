@@ -1,28 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useState } from 'react'
-import { MapContainer, TileLayer, Polyline, Popup, Marker, useMap, useMapEvents } from 'react-leaflet'
-import { useLocation, useSearchParams } from 'react-router-dom'
-import L from 'leaflet'
-import { renderToStaticMarkup } from 'react-dom/server'
-import {
-  AlertTriangle,
-  Ban,
-  Bird,
-  Car,
-  CircleOff,
-  CircleSlash,
-  CloudFog,
-  CloudRain,
-  Construction,
-  Droplets,
-  Route,
-  ShieldAlert,
-  Snowflake,
-  TrafficCone,
-  TreePine,
-  Waves,
-  Wrench,
-  Zap,
-} from 'lucide-react'
+
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { HAZARD_TYPE_VALUES } from '../constants/hazardTypes'
@@ -668,6 +644,12 @@ export default function MapDashboard() {
               </button>
             </div>
           </div>
+
+          {verificationBanner ? (
+            <div className="absolute top-4 left-1/2 z-[1000] -translate-x-1/2 rounded-xl border border-green-500/30 bg-green-500/15 px-4 py-2 text-sm text-green-200 backdrop-blur-sm">
+              Email verified. Welcome back to Safe Cycling.
+            </div>
+          ) : null}
 
           <div className="map-live-badge absolute bottom-4 left-4 z-[1000] pointer-events-none">
             <div className="map-live-dot" />

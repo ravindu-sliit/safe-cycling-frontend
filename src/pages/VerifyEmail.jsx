@@ -1,33 +1,101 @@
-import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useEffectEvent, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import api from '../services/api'
+import { useAuth } from '../context/AuthContext.jsx'
+
+const extractProfilePayload = (payload) => payload?.data || payload?.user || payload?.profile || payload || {}
+
+const mergeStoredUser = (currentUser = {}, profile = {}) => {
+  const nextId = profile._id || profile.id || currentUser._id || currentUser.id || ''
+
+  return {
+    ...currentUser,
+    ...profile,
+    id: nextId,
+    _id: nextId,
+    profileImageUrl: profile.profileImageUrl || currentUser.profileImageUrl || '',
+    isVerified: Boolean(profile.isVerified ?? currentUser.isVerified),
+    twoFactorEnabled: Boolean(profile.twoFactorEnabled ?? currentUser.twoFactorEnabled),
+    preferences: profile.preferences || currentUser.preferences,
+  }
+}
 
 export default function VerifyEmail() {
+  const navigate = useNavigate()
   const { token } = useParams()
+  const { isAuthenticated, updateUser, user } = useAuth()
   const [status, setStatus] = useState(() => (token ? 'loading' : 'error'))
   const [message, setMessage] = useState(() =>
     token ? 'Verifying your email address...' : 'Missing verification token.',
   )
+  const [redirectPath, setRedirectPath] = useState('/login')
+
+  const syncUser = useEffectEvent((profile) => {
+    updateUser(mergeStoredUser(user, profile))
+  })
 
   useEffect(() => {
+    if (!token) {
+      return undefined
+    }
+
+    let isActive = true
+    let redirectTimer
+
     const verifyEmail = async () => {
       try {
         const { data } = await api.get(`/auth/verify/${token}`)
+
+        if (!isActive) {
+          return
+        }
+
         setStatus('success')
-        setMessage(data.message || 'Email successfully verified. You can now log in.')
+
+        if (isAuthenticated) {
+          try {
+            const currentUserResponse = await api.get('/users/me')
+            if (isActive) {
+              syncUser(extractProfilePayload(currentUserResponse.data))
+            }
+          } catch {
+            // Keep the redirect flow working even if refreshing the user fails.
+          }
+
+          setRedirectPath('/dashboard?verified=1')
+          setMessage(data.message || 'Email successfully verified. Redirecting to your dashboard...')
+          redirectTimer = window.setTimeout(() => {
+            navigate('/dashboard?verified=1', { replace: true })
+          }, 1200)
+          return
+        }
+
+        setRedirectPath('/login?verified=1')
+        setMessage(data.message || 'Email successfully verified. Redirecting to login...')
+        redirectTimer = window.setTimeout(() => {
+          navigate('/login?verified=1', { replace: true })
+        }, 1200)
       } catch (requestError) {
+        if (!isActive) {
+          return
+        }
+
         setStatus('error')
+        setRedirectPath('/login')
         setMessage(
           requestError.response?.data?.message ||
-            'This verification link is invalid or has already expired.',
+          'This verification link is invalid or has already expired.',
         )
       }
     }
 
-    if (!token) return
-
     verifyEmail()
-  }, [token])
+
+    return () => {
+      isActive = false
+      window.clearTimeout(redirectTimer)
+    }
+  }, [isAuthenticated, navigate, token])
 
   const accentClasses =
     status === 'success'
@@ -46,7 +114,7 @@ export default function VerifyEmail() {
         Confirming your account access.
       </h1>
       <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-        This page calls your backend verification endpoint and turns the result into a clean frontend experience instead of a raw API response.
+        Older frontend verification links still work here. Once the backend confirms the token, you are moved into the right next step automatically.
       </p>
 
       <div className={`mt-8 rounded-3xl border px-5 py-5 text-sm font-medium ${accentClasses}`}>
@@ -55,10 +123,10 @@ export default function VerifyEmail() {
 
       <div className="mt-8 flex flex-wrap gap-3">
         <Link
-          to="/login"
+          to={redirectPath}
           className="inline-flex items-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
         >
-          Go to login
+          Continue
         </Link>
         <Link
           to="/register"
