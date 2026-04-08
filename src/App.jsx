@@ -11,7 +11,6 @@ import MapDashboard from './pages/MapDashboard.jsx'
 import Hazards from './pages/Hazards.jsx'
 import Reviews from './pages/Reviews.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
-import SiteFooter from './components/SiteFooter.jsx'
 import { useAuth } from './context/AuthContext.jsx'
 
 function IconBike() {
@@ -181,7 +180,6 @@ function App() {
     location.pathname.startsWith('/reset-password/') ||
     location.pathname.startsWith('/verify-email/')
   const hideNavbar = isAuthPage || location.pathname === '/admin/dashboard'
-  const showFooter = !isAuthPage && location.pathname !== '/admin/dashboard' && !location.pathname.startsWith('/dashboard') && location.pathname !== '/admin/map'
 
   return (
     <div className="app-shell">
@@ -245,7 +243,6 @@ function App() {
           <Route path="*" element={<Navigate to={isAuthenticated ? dashboardPath : '/login'} replace />} />
         </Routes>
       </main>
-      {showFooter && <SiteFooter />}
     </div>
   )
 }
