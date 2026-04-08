@@ -647,7 +647,7 @@ export default function MapDashboard() {
       <div className="map-section relative">
         <div className="map-container relative">
           <div className="map-overlay">
-            <div className="map-location-pill ml-auto">Active Routes: {routes.length} | Hazards: {filteredMapHazards.length}/{mapHazards.length}</div>
+            <div className="map-location-pill ml-auto">Active Routes: {routes.length} | Hazards: {filteredMapHazards.length}</div>
           </div>
 
           <div className="map-hazard-controls">
