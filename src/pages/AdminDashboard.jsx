@@ -86,6 +86,10 @@ function normalizeRoleValue(value) {
   return role === 'organisation' ? 'organization' : role
 }
 
+function supportsCyclingStyle(role) {
+  return normalizeRoleValue(role) === 'user'
+}
+
 function getCyclingStyleLabel(value) {
   return CYCLING_STYLE_LABELS[value] || 'Not selected'
 }
@@ -309,6 +313,10 @@ export default function AdminDashboard() {
     navigate('/login', { replace: true })
   }
 
+  const handleManageProfile = () => {
+    navigate('/admin/profile')
+  }
+
   const resetEditor = () => {
     setEditorMode('')
     setEditingUserId('')
@@ -332,10 +340,24 @@ export default function AdminDashboard() {
 
   const handleFormChange = (event) => {
     const { name, value, type, checked } = event.target
-    setForm((current) => ({
-      ...current,
-      [name]: type === 'checkbox' ? checked : value,
-    }))
+    setForm((current) => {
+      const nextValue = type === 'checkbox' ? checked : value
+
+      if (name === 'role') {
+        return {
+          ...current,
+          role: nextValue,
+          cyclingStyle: supportsCyclingStyle(nextValue)
+            ? (current.cyclingStyle || 'commuter')
+            : '',
+        }
+      }
+
+      return {
+        ...current,
+        [name]: nextValue,
+      }
+    })
   }
 
   const handleCreateStart = () => {
@@ -356,7 +378,7 @@ export default function AdminDashboard() {
       email: user.email || '',
       password: '',
       role: normalizeRoleValue(user.role),
-      cyclingStyle: user.cyclingStyle || 'commuter',
+      cyclingStyle: supportsCyclingStyle(user.role) ? (user.cyclingStyle || 'commuter') : '',
       isVerified: Boolean(user.isVerified),
     })
     setEditorMode('edit')
@@ -495,7 +517,7 @@ export default function AdminDashboard() {
       user.name,
       user.email,
       getRoleLabel(userRole),
-      getCyclingStyleLabel(user.cyclingStyle),
+      supportsCyclingStyle(userRole) ? getCyclingStyleLabel(user.cyclingStyle) : '',
       user.isVerified ? 'verified' : 'not verified',
     ]
       .filter(Boolean)
@@ -541,8 +563,11 @@ export default function AdminDashboard() {
         name: form.name.trim(),
         email: form.email.trim(),
         role: normalizeRoleValue(form.role),
-        cyclingStyle: form.cyclingStyle,
         isVerified: Boolean(form.isVerified),
+      }
+
+      if (supportsCyclingStyle(form.role)) {
+        payload.cyclingStyle = form.cyclingStyle
       }
 
       if (form.password.trim()) {
@@ -567,7 +592,7 @@ export default function AdminDashboard() {
             id: getUserId(refreshedCurrentUser),
             name: refreshedCurrentUser.name || '',
             email: refreshedCurrentUser.email || '',
-            cyclingStyle: refreshedCurrentUser.cyclingStyle || 'commuter',
+            cyclingStyle: supportsCyclingStyle(refreshedCurrentUser.role) ? (refreshedCurrentUser.cyclingStyle || 'commuter') : '',
             role: normalizeRoleValue(refreshedCurrentUser.role),
           })
         }
@@ -817,7 +842,7 @@ export default function AdminDashboard() {
     {
       id: 'profile',
       label: 'Admin Profile',
-      note: 'See the signed-in admin account snapshot.',
+      note: 'Review your account summary and jump to full settings.',
       badge: getRoleLabel(adminProfile?.role || currentUser?.role || 'admin'),
       Icon: IconProfile,
       onClick: () => scrollToSection('profile'),
@@ -868,6 +893,9 @@ export default function AdminDashboard() {
                 <span>{totalUsers} users loaded</span>
                 <span>{formatDate(new Date().toISOString())}</span>
               </div>
+              <button type="button" className="admin-secondary-button" onClick={handleManageProfile}>
+                Manage Profile
+              </button>
               <button type="button" className="admin-dashboard-logout" onClick={handleLogout}>
                 Log Out
               </button>
@@ -1016,21 +1044,23 @@ export default function AdminDashboard() {
                     </select>
                   </label>
 
-                  <label className="admin-editor-field">
-                    <span>Cycling Style</span>
-                    <select
-                      name="cyclingStyle"
-                      className="admin-editor-input admin-filter-select"
-                      value={form.cyclingStyle}
-                      onChange={handleFormChange}
-                    >
-                      {Object.entries(CYCLING_STYLE_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {supportsCyclingStyle(form.role) ? (
+                    <label className="admin-editor-field">
+                      <span>Cycling Style</span>
+                      <select
+                        name="cyclingStyle"
+                        className="admin-editor-input admin-filter-select"
+                        value={form.cyclingStyle}
+                        onChange={handleFormChange}
+                      >
+                        {Object.entries(CYCLING_STYLE_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
 
                   <label className="admin-editor-field admin-editor-check">
                     <span>Verification</span>
@@ -1112,7 +1142,7 @@ export default function AdminDashboard() {
                             {getRoleLabel(String(user.role || 'user'))}
                           </span>
                         </td>
-                        <td>{getCyclingStyleLabel(user.cyclingStyle)}</td>
+                        <td>{supportsCyclingStyle(user.role) ? getCyclingStyleLabel(user.cyclingStyle) : 'Not applicable'}</td>
                         <td>
                           <span className={`admin-pill ${user.isVerified ? 'admin-pill-verified' : 'admin-pill-pending'}`}>
                             {user.isVerified ? 'Verified' : 'Not verified'}
@@ -1532,7 +1562,7 @@ export default function AdminDashboard() {
             <div className="admin-management-header">
               <div>
                 <h2>Admin Profile Snapshot</h2>
-                <p>The signed-in admin account details loaded directly from the backend database.</p>
+                <p>The signed-in admin account details loaded directly from the backend database, with a shortcut to full profile management.</p>
               </div>
               <div className="admin-data-summary-row">
                 <span className="admin-data-summary-pill">{getRoleLabel(adminProfile?.role || 'admin')}</span>
@@ -1558,13 +1588,18 @@ export default function AdminDashboard() {
                 <strong className="admin-profile-value">{adminProfile?.isVerified ? 'Verified account' : 'Awaiting verification'}</strong>
               </article>
               <article className="admin-profile-card">
-                <span className="admin-profile-label">Cycling Style</span>
-                <strong className="admin-profile-value">{getCyclingStyleLabel(adminProfile?.cyclingStyle)}</strong>
-              </article>
-              <article className="admin-profile-card">
                 <span className="admin-profile-label">Joined Date</span>
                 <strong className="admin-profile-value">{formatDate(adminProfile?.createdAt)}</strong>
               </article>
+            </div>
+
+            <div className="admin-editor-actions">
+              <button type="button" className="admin-primary-button" onClick={handleManageProfile}>
+                Open Account Settings
+              </button>
+              <button type="button" className="admin-secondary-button" onClick={() => scrollToSection('overview')}>
+                Back to Overview
+              </button>
             </div>
           </div>
         </div>
