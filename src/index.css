@@ -2811,6 +2811,12 @@ label {
   background: rgba(127, 29, 29, 0.32);
 }
 
+.admin-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .admin-table-message {
   margin: 0 24px 16px;
   padding: 12px 14px;

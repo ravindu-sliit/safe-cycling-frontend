@@ -43,6 +43,26 @@ function normalizeCreatedRoutePayload(payload) {
   return null
 }
 
+function getRouteId(route) {
+  return route?._id || route?.id || ''
+}
+
+function buildRouteFormFromRoute(route) {
+  const startCoordinates = Array.isArray(route?.startLocation?.coordinates) ? route.startLocation.coordinates : []
+  const endCoordinates = Array.isArray(route?.endLocation?.coordinates) ? route.endLocation.coordinates : []
+
+  return {
+    title: route?.title || '',
+    ecoScore: route?.ecoScore != null ? String(route.ecoScore) : '',
+    startLng: Number.isFinite(Number(startCoordinates[0])) ? String(startCoordinates[0]) : '',
+    startLat: Number.isFinite(Number(startCoordinates[1])) ? String(startCoordinates[1]) : '',
+    startAddress: route?.startLocation?.address || '',
+    endLng: Number.isFinite(Number(endCoordinates[0])) ? String(endCoordinates[0]) : '',
+    endLat: Number.isFinite(Number(endCoordinates[1])) ? String(endCoordinates[1]) : '',
+    endAddress: route?.endLocation?.address || '',
+  }
+}
+
 // 1. Haversine Formula: Calculates distance between two coordinates in kilometers
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Earth's radius in km
@@ -85,6 +105,8 @@ export default function MapDashboard() {
   const location = useLocation()
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin' || user?.role === 'organization'
+  const focusRouteId = location.state?.routeId || ''
+  const focusRouteMode = location.state?.mode || ''
 
   const [routes, setRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -117,7 +139,7 @@ export default function MapDashboard() {
   const [createdRouteDetails, setCreatedRouteDetails] = useState(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [locationPickMode, setLocationPickMode] = useState('')
-  const focusRouteId = location.state?.routeId || ''
+  const [editingRouteId, setEditingRouteId] = useState('')
 
   useEffect(() => {
     const fetchRoutes = async () => {
@@ -226,7 +248,49 @@ export default function MapDashboard() {
       const bounds = [[Math.min(...latitudes), Math.min(...longitudes)], [Math.max(...latitudes), Math.max(...longitudes)]]
       setRouteBounds(bounds)
     }
+
+    if (focusRouteMode === 'edit') {
+      setEditingRouteId(routeToFocus._id || routeToFocus.id)
+      setNewRouteForm(buildRouteFormFromRoute(routeToFocus))
+      setShowCreatePanel(true)
+      setLocationPickMode('')
+    }
   }, [focusRouteId, routes])
+
+  const handleStartNewRoute = () => {
+    setError('')
+    setActionMessage({ type: '', text: '', visible: false })
+    setEditingRouteId('')
+    setNewRouteForm({
+      title: '',
+      ecoScore: '',
+      startLng: '',
+      startLat: '',
+      startAddress: '',
+      endLng: '',
+      endLat: '',
+      endAddress: '',
+    })
+    setLocationPickMode('')
+    setShowCreatePanel((current) => !current)
+  }
+
+  const handleStartRouteEdit = (route) => {
+    setError('')
+    setActionMessage({ type: '', text: '', visible: false })
+    setEditingRouteId(route?._id || route?.id || '')
+    setNewRouteForm(buildRouteFormFromRoute(route))
+    setShowCreatePanel(true)
+    setLocationPickMode('')
+
+    const normalizedPath = normalizePathCoordinates(route?.pathCoordinates)
+    if (normalizedPath.length >= 2) {
+      const latitudes = normalizedPath.map(([lat]) => lat)
+      const longitudes = normalizedPath.map(([, lng]) => lng)
+      const bounds = [[Math.min(...latitudes), Math.min(...longitudes)], [Math.max(...latitudes), Math.max(...longitudes)]]
+      setRouteBounds(bounds)
+    }
+  }
 
   // Admin: Create Route Handler
   const handleCreateRoute = async () => {
@@ -255,20 +319,27 @@ export default function MapDashboard() {
     }
 
     try {
-      const createResponse = await api.post('/routes', {
+      const routePayload = {
         title: newRouteForm.title.trim(),
         ecoScore: Number(newRouteForm.ecoScore),
         startLocation: {
+          type: 'Point',
           coordinates: [startLng, startLat],
           address: newRouteForm.startAddress.trim(),
         },
         endLocation: {
+          type: 'Point',
           coordinates: [endLng, endLat],
           address: newRouteForm.endAddress.trim(),
         },
-      })
+      }
+
+      const createResponse = editingRouteId
+        ? await api.put(`/routes/${editingRouteId}`, routePayload)
+        : await api.post('/routes', routePayload)
+
       setCreatedRouteDetails(normalizeCreatedRoutePayload(createResponse?.data))
-      showMessage('success', 'Route created successfully!')
+      showMessage('success', editingRouteId ? 'Route updated successfully!' : 'Route created successfully!')
       setNewRouteForm({
         title: '',
         ecoScore: '',
@@ -279,14 +350,28 @@ export default function MapDashboard() {
         endLat: '',
         endAddress: '',
       })
+      setEditingRouteId('')
       setShowCreatePanel(false)
       // Reload routes
       const response = await api.get('/routes')
       const payload = response?.data
       const routeRows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : []
       setRoutes(routeRows)
+
+      const createdOrUpdatedRouteId = getRouteId(normalizeCreatedRoutePayload(createResponse?.data))
+      const refreshedRoute = routeRows.find((route) => getRouteId(route) === createdOrUpdatedRouteId)
+      if (refreshedRoute) {
+        setSelectedRoute(refreshedRoute)
+
+        const normalizedPath = normalizePathCoordinates(refreshedRoute.pathCoordinates)
+        if (normalizedPath.length >= 2) {
+          const latitudes = normalizedPath.map(([lat]) => lat)
+          const longitudes = normalizedPath.map(([, lng]) => lng)
+          setRouteBounds([[Math.min(...latitudes), Math.min(...longitudes)], [Math.max(...latitudes), Math.max(...longitudes)]])
+        }
+      }
     } catch (err) {
-      showMessage('error', err?.response?.data?.message || 'Failed to create route')
+      showMessage('error', err?.response?.data?.message || (editingRouteId ? 'Failed to update route' : 'Failed to create route'))
     }
   }
 
@@ -392,12 +477,7 @@ export default function MapDashboard() {
             {isAdmin && (
               <button
                 type="button"
-                onClick={() => {
-                  setShowCreatePanel((current) => {
-                    if (current) setLocationPickMode('')
-                    return !current
-                  })
-                }}
+                onClick={handleStartNewRoute}
                 className="filter-pill"
                 style={{
                   background: showCreatePanel ? 'var(--brand-500)' : 'rgba(16, 185, 129, 0.15)',
@@ -455,7 +535,7 @@ export default function MapDashboard() {
 
           {isAdmin && showCreatePanel && (
             <div className="absolute top-14 left-16 z-[1000] pointer-events-auto w-96 bg-[#1c2333] border border-[rgba(100,200,255,0.2)] rounded-xl shadow-2xl p-5 backdrop-blur-sm">
-              <h3 className="text-lg font-bold text-white mb-4">Create New Route</h3>
+              <h3 className="text-lg font-bold text-white mb-4">{editingRouteId ? 'Edit Route' : 'Create New Route'}</h3>
               <div className="space-y-3">
                 <input
                   type="text"
@@ -549,13 +629,14 @@ export default function MapDashboard() {
                     onClick={handleCreateRoute}
                     className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white font-medium rounded-lg px-3 py-2 text-sm transition-all"
                   >
-                    Create Route
+                    {editingRouteId ? 'Update Route' : 'Create Route'}
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       setShowCreatePanel(false)
                       setLocationPickMode('')
+                      setEditingRouteId('')
                     }}
                     className="flex-1 bg-[rgba(255,255,255,0.08)] hover:bg-[rgba(255,255,255,0.12)] text-white font-medium rounded-lg px-3 py-2 text-sm transition-all"
                   >
@@ -596,6 +677,15 @@ export default function MapDashboard() {
                 <button type="button" className="btn btn-primary w-full mt-1">
                   Read Full Reviews
                 </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => handleStartRouteEdit(selectedRoute)}
+                    className="btn btn-ghost w-full"
+                  >
+                    Edit Route
+                  </button>
+                )}
                 {isAdmin && (
                   <button
                     type="button"
