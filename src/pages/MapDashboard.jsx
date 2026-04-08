@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, Polyline, Popup, Marker, useMap, useMapEvents } from 'react-leaflet'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import L from 'leaflet'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
@@ -150,12 +150,70 @@ function MapLocationPicker({ mode, onPick }) {
   return null
 }
 
+const extractProfilePayload = (payload) => payload?.data || payload?.user || payload?.profile || payload || {}
+
+const mergeStoredUser = (currentUser = {}, profile = {}) => {
+  const nextId = profile._id || profile.id || currentUser._id || currentUser.id || ''
+
+  return {
+    ...currentUser,
+    ...profile,
+    id: nextId,
+    _id: nextId,
+    profileImageUrl: profile.profileImageUrl || currentUser.profileImageUrl || '',
+    isVerified: Boolean(profile.isVerified ?? currentUser.isVerified),
+    twoFactorEnabled: Boolean(profile.twoFactorEnabled ?? currentUser.twoFactorEnabled),
+    preferences: profile.preferences || currentUser.preferences,
+  }
+}
+
 export default function MapDashboard() {
   const location = useLocation()
-  const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { isAuthenticated, user, updateUser } = useAuth()
+  const verificationBanner = searchParams.get('verified') === '1'
   const isAdmin = user?.role === 'admin' || user?.role === 'organization'
   const focusRouteId = location.state?.routeId || ''
   const focusRouteMode = location.state?.mode || ''
+
+  const syncUser = useEffectEvent((profile) => {
+    updateUser(mergeStoredUser(user, profile))
+  })
+
+  useEffect(() => {
+    if (!verificationBanner) {
+      return undefined
+    }
+
+    let isActive = true
+    const removeBannerTimer = window.setTimeout(() => {
+      if (!isActive) return
+
+      const nextParams = new URLSearchParams(searchParams)
+      nextParams.delete('verified')
+      setSearchParams(nextParams, { replace: true })
+    }, 6000)
+
+    const refreshCurrentUser = async () => {
+      if (!isAuthenticated) return
+
+      try {
+        const { data } = await api.get('/users/me')
+        if (!isActive) return
+
+        syncUser(extractProfilePayload(data))
+      } catch {
+        // Keep the dashboard usable even if profile refresh fails.
+      }
+    }
+
+    refreshCurrentUser()
+
+    return () => {
+      isActive = false
+      window.clearTimeout(removeBannerTimer)
+    }
+  }, [isAuthenticated, searchParams, setSearchParams, verificationBanner])
 
   const [routes, setRoutes] = useState([]);
   const [hazards, setHazards] = useState([])
