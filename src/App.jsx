@@ -103,6 +103,7 @@ function Navbar() {
   const dashboardPath = user?.role === 'admin' ? '/admin/dashboard' : '/dashboard'
   const navItems = [
     { to: dashboardPath, label: 'Dashboard', Icon: IconMap },
+    ...(user?.role === 'admin' ? [{ to: '/admin/map', label: 'Map', Icon: IconMap }] : []),
     { to: '/hazards', label: 'Hazards', Icon: IconAlert },
     { to: '/reviews', label: 'Reviews', Icon: IconStar },
     { to: '/profile', label: 'Account', Icon: IconUser },
@@ -180,7 +181,7 @@ function App() {
     location.pathname.startsWith('/reset-password/') ||
     location.pathname.startsWith('/verify-email/')
   const hideNavbar = isAuthPage || location.pathname === '/admin/dashboard'
-  const showFooter = !isAuthPage && location.pathname !== '/admin/dashboard'
+  const showFooter = !isAuthPage && location.pathname !== '/admin/dashboard' && !location.pathname.startsWith('/dashboard') && location.pathname !== '/admin/map'
 
   return (
     <div className="app-shell">
@@ -198,6 +199,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole="admin">
                 <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/map"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <MapDashboard />
               </ProtectedRoute>
             }
           />
