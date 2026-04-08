@@ -1,35 +1,43 @@
-import axios from 'axios';
+import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+const normalizeApiBaseUrl = (value) => {
+  const trimmedValue = String(value || '').trim().replace(/\/+$/, '')
 
-// Create a central Axios instance
-const api = axios.create({
-  baseURL: API_BASE_URL,
-});
-
-// Intercept requests to automatically add the Auth Token
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token'); // Assuming you save the JWT here
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  if (!trimmedValue) {
+    return 'http://localhost:5000/api'
   }
-  return config;
-});
+
+  return trimmedValue.endsWith('/api') ? trimmedValue : `${trimmedValue}/api`
+}
+
+const api = axios.create({
+  baseURL: normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL),
+})
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+
+  return config
+})
 
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
 
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-        window.location.assign('/login');
+        window.location.assign('/login')
       }
     }
 
-    return Promise.reject(error);
+    return Promise.reject(error)
   },
-);
+)
 
-export default api;
+export default api
