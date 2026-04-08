@@ -6,7 +6,15 @@ export default function ProtectedRoute({ children, requiredRole }) {
   const { isAuthenticated, user } = useAuth()
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace state={{ from: location }} />
+    const nextParams = new URLSearchParams()
+
+    if (new URLSearchParams(location.search).get('verified') === '1') {
+      nextParams.set('verified', '1')
+    }
+
+    const loginPath = nextParams.toString() ? `/login?${nextParams}` : '/login'
+
+    return <Navigate to={loginPath} replace state={{ from: location }} />
   }
 
   if (requiredRole && user?.role !== requiredRole) {
