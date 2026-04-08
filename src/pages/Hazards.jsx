@@ -7,6 +7,12 @@ const SEVERITY_CLASS = {
   low: 'badge-low',
 }
 
+const STATUS_CLASS = {
+  reported: 'status-badge-reported',
+  pending: 'status-badge-pending',
+  resolved: 'status-badge-resolved',
+}
+
 const INITIAL_FORM = {
   title: '',
   description: '',
@@ -18,6 +24,12 @@ function SeverityBadge({ severity }) {
   const normalized = String(severity || 'low').toLowerCase()
   const label = normalized.charAt(0).toUpperCase() + normalized.slice(1)
   return <span className={`badge ${SEVERITY_CLASS[normalized] ?? 'badge-low'}`}>{label}</span>
+}
+
+function StatusBadge({ status }) {
+  const normalized = String(status || 'reported').toLowerCase()
+  const label = normalized.charAt(0).toUpperCase() + normalized.slice(1)
+  return <span className={`status-badge ${STATUS_CLASS[normalized] ?? 'status-badge-reported'}`}>{label}</span>
 }
 
 function getCurrentUserId() {
@@ -62,6 +74,19 @@ function formatDate(dateString) {
   const date = new Date(dateString)
   if (Number.isNaN(date.getTime())) return 'Unknown date'
   return date.toLocaleDateString()
+}
+
+function formatDateTime(dateString) {
+  if (!dateString) return 'Unknown time'
+  const date = new Date(dateString)
+  if (Number.isNaN(date.getTime())) return 'Unknown time'
+  return date.toLocaleString()
+}
+
+function getUserDisplayLabel(userValue, fallback = 'Unknown user') {
+  if (!userValue) return fallback
+  if (typeof userValue === 'string') return 'User account'
+  return userValue.name || userValue.email || fallback
 }
 
 async function reverseGeocodeLocationName(latitude, longitude) {
@@ -122,6 +147,11 @@ export default function Hazards() {
   const [cameraError, setCameraError] = useState('')
   const [cameraStream, setCameraStream] = useState(null)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
+  const [isResolveModalOpen, setIsResolveModalOpen] = useState(false)
+  const [hazardToResolve, setHazardToResolve] = useState(null)
+  const [solveResult, setSolveResult] = useState('')
+  const [solveError, setSolveError] = useState('')
+  const [resolveSubmitting, setResolveSubmitting] = useState(false)
   const fileInputRef = useRef(null)
   const cameraVideoRef = useRef(null)
 
@@ -153,6 +183,11 @@ export default function Hazards() {
   }, [filter, hazards])
 
   const emptyFilterLabel = filter === 'all' ? 'matching' : filter
+  const selectedTypeLabel = formData.type ? `${formData.type.charAt(0).toUpperCase()}${formData.type.slice(1)}` : 'Other'
+  const selectedSeverityLabel = formData.severity ? `${formData.severity.charAt(0).toUpperCase()}${formData.severity.slice(1)}` : 'Medium'
+  const detectedLatitude = Number(currentLocation.latitude)
+  const detectedLongitude = Number(currentLocation.longitude)
+  const hasDetectedLocation = Number.isFinite(detectedLatitude) && Number.isFinite(detectedLongitude)
 
   const onFormChange = (event) => {
     const { name, value } = event.target
@@ -428,6 +463,7 @@ export default function Hazards() {
         },
         imageUrl,
         createdBy,
+        updatedBy: createdBy,
       }
 
       await api.post('/hazards', payload)
@@ -437,6 +473,61 @@ export default function Hazards() {
       console.error('Failed to create hazard:', error)
       setFormError(error?.response?.data?.message || 'Failed to submit hazard report. Please try again.')
       setSubmitting(false)
+    }
+  }
+
+  const openResolveModal = (hazard) => {
+    setHazardToResolve(hazard)
+    setSolveResult('')
+    setSolveError('')
+    setResolveSubmitting(false)
+    setIsResolveModalOpen(true)
+  }
+
+  const closeResolveModal = () => {
+    setIsResolveModalOpen(false)
+    setHazardToResolve(null)
+    setSolveResult('')
+    setSolveError('')
+    setResolveSubmitting(false)
+  }
+
+  const submitResolveHazard = async (event) => {
+    event.preventDefault()
+    setSolveError('')
+
+    if (!hazardToResolve?._id) {
+      setSolveError('Please choose a hazard to mark as solved.')
+      return
+    }
+
+    const actorId = getCurrentUserId()
+    if (!actorId) {
+      setSolveError('Please log in first. A valid user is required to solve hazards.')
+      return
+    }
+
+    const normalizedSolveResult = solveResult.trim()
+    if (!normalizedSolveResult) {
+      setSolveError('Please enter the solve result before marking this hazard as solved.')
+      return
+    }
+
+    setResolveSubmitting(true)
+
+    try {
+      await api.patch(`/hazards/${hazardToResolve._id}/resolve`, {
+        solveResult: normalizedSolveResult,
+        updatedBy: actorId,
+        resolvedBy: actorId,
+      })
+
+      closeResolveModal()
+      await fetchHazards()
+    } catch (error) {
+      console.error('Failed to solve hazard:', error)
+      setSolveError(error?.response?.data?.message || 'Failed to mark hazard as solved. Please try again.')
+      setResolveSubmitting(false)
     }
   }
 
@@ -492,35 +583,69 @@ export default function Hazards() {
       {/* Cards grid */}
       {!loading && !loadError && (
         <div className="hazard-grid">
-          {filtered.map(hazard => (
-            <div key={hazard._id} className="card card-col">
-              <div className="card-body card-body-grow">
-                {hazard.imageUrl && (
-                  <div className="hazard-card-image-wrap">
-                    <img className="hazard-card-image" src={hazard.imageUrl} alt={hazard.title} loading="lazy" />
-                  </div>
-                )}
-                <div className="card-title-row">
-                  <h3 className="card-title">{hazard.title}</h3>
-                  <SeverityBadge severity={hazard.severity} />
-                </div>
-                <p className="card-desc">{hazard.description}</p>
-                <div className="card-meta">
-                  <div className="meta-row">
-                    <IconLocation /> {hazard.locationName || 'Location name unavailable'}
-                  </div>
-                  <div className="meta-row">
-                    <IconCalendar /> {formatDate(hazard.createdAt)}
-                  </div>
-                </div>
-              </div>
+          {filtered.map(hazard => {
+            const status = String(hazard.status || 'reported').toLowerCase()
+            const isResolved = status === 'resolved'
+            const createdByLabel = getUserDisplayLabel(hazard.createdBy, 'Unknown reporter')
+            const updatedByLabel = hazard.updatedBy ? getUserDisplayLabel(hazard.updatedBy, 'Unknown updater') : ''
+            const resolvedByLabel = hazard.resolvedBy ? getUserDisplayLabel(hazard.resolvedBy, 'Unknown resolver') : ''
 
-              <div className="card-footer">
-                <span className="meta-row">Type: {hazard.type || 'other'}</span>
-                <span className="meta-row">Status: {hazard.status || 'reported'}</span>
+            return (
+              <div key={hazard._id} className="card card-col">
+                <div className="card-body card-body-grow">
+                  {hazard.imageUrl && (
+                    <div className="hazard-card-image-wrap">
+                      <img className="hazard-card-image" src={hazard.imageUrl} alt={hazard.title} loading="lazy" />
+                    </div>
+                  )}
+                  <div className="card-title-row">
+                    <h3 className="card-title">{hazard.title}</h3>
+                    <SeverityBadge severity={hazard.severity} />
+                  </div>
+                  <p className="card-desc">{hazard.description}</p>
+
+                  {isResolved && hazard.solveResult && (
+                    <div className="hazard-solve-result">
+                      <span className="hazard-solve-result-label">Solve Result:</span>
+                      <p>{hazard.solveResult}</p>
+                    </div>
+                  )}
+
+                  <div className="card-meta">
+                    <div className="meta-row">
+                      <IconLocation /> {hazard.locationName || 'Location name unavailable'}
+                    </div>
+                    <div className="meta-row">
+                      <IconCalendar /> Reported: {formatDate(hazard.createdAt)}
+                    </div>
+                    <div className="meta-row">Reported by: {createdByLabel}</div>
+                    <div className="meta-row">Last updated: {formatDateTime(hazard.updatedAt)}</div>
+                    {updatedByLabel && <div className="meta-row">Updated by: {updatedByLabel}</div>}
+                    {isResolved && resolvedByLabel && <div className="meta-row">Solved by: {resolvedByLabel}</div>}
+                    {isResolved && hazard.resolvedAt && <div className="meta-row">Solved on: {formatDateTime(hazard.resolvedAt)}</div>}
+                  </div>
+                </div>
+
+                <div className="card-footer card-footer-stack">
+                  <div className="card-footer-status">
+                    <span className="meta-row">Type: {hazard.type || 'other'}</span>
+                    <StatusBadge status={status} />
+                  </div>
+
+                  {!isResolved && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => openResolveModal(hazard)}
+                      disabled={resolveSubmitting}
+                    >
+                      Mark as Solved
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -535,85 +660,128 @@ export default function Hazards() {
         <div className="modal-backdrop" onClick={closeReportModal}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h3>Report Hazard</h3>
+              <div>
+                <h3>Report Hazard</h3>
+                <p className="modal-subtitle">Share clear details so nearby riders can plan safer routes.</p>
+              </div>
               <button className="btn btn-ghost btn-sm" onClick={closeReportModal}>Close</button>
             </div>
 
             <form className="modal-form" onSubmit={submitHazard}>
-              <div>
-                <label htmlFor="title">Title</label>
-                <input
-                  id="title"
-                  name="title"
-                  className="input"
-                  value={formData.title}
-                  onChange={onFormChange}
-                  placeholder="Pothole near bridge entrance"
-                  required
-                />
+              <div className="hazard-report-summary" aria-live="polite">
+                <span className="summary-chip">Type: {selectedTypeLabel}</span>
+                <span className="summary-chip">Severity: {selectedSeverityLabel}</span>
+                <span className={`summary-chip${hasDetectedLocation ? ' summary-chip-ready' : ''}`}>
+                  Location: {hasDetectedLocation ? 'Captured' : 'Pending'}
+                </span>
               </div>
 
-              <div>
-                <label htmlFor="description">Description</label>
-                <textarea
-                  id="description"
-                  name="description"
-                  className="input textarea"
-                  value={formData.description}
-                  onChange={onFormChange}
-                  placeholder="Describe the hazard so other riders can avoid it"
-                  rows={4}
-                  required
-                />
-              </div>
-
-              <div className="modal-grid-two">
-                <div>
-                  <label htmlFor="type">Type</label>
-                  <select id="type" name="type" className="input" value={formData.type} onChange={onFormChange}>
-                    <option value="pothole">Pothole</option>
-                    <option value="debris">Debris</option>
-                    <option value="lighting">Lighting</option>
-                    <option value="collision">Collision</option>
-                    <option value="other">Other</option>
-                  </select>
+              <section className="form-section">
+                <div className="form-section-head">
+                  <h4>Hazard Details</h4>
+                  <p>Describe the issue clearly so cyclists can decide quickly and safely.</p>
                 </div>
-                <div>
-                  <label htmlFor="severity">Severity</label>
-                  <select id="severity" name="severity" className="input" value={formData.severity} onChange={onFormChange}>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </select>
-                </div>
-              </div>
 
-              <div className="location-panel">
-                <div>
-                  <label>Current Location</label>
-                  <div className="location-readout">
-                    <IconLocation />
-                    {currentLocation.loading
-                      ? 'Detecting current location...'
-                      : currentLocation.resolvingName
-                        ? 'Resolving location name...'
-                        : currentLocation.name || 'Location not detected yet'}
+                <div className="form-field">
+                  <div className="field-label-row">
+                    <label htmlFor="title">Title</label>
+                    <span className="field-help">Short and specific</span>
+                  </div>
+                  <input
+                    id="title"
+                    name="title"
+                    className="input"
+                    value={formData.title}
+                    onChange={onFormChange}
+                    placeholder="Pothole near bridge entrance"
+                    required
+                  />
+                </div>
+
+                <div className="form-field">
+                  <div className="field-label-row">
+                    <label htmlFor="description">Description</label>
+                    <span className="field-help">Include obstacles and lane impact</span>
+                  </div>
+                  <textarea
+                    id="description"
+                    name="description"
+                    className="input textarea"
+                    value={formData.description}
+                    onChange={onFormChange}
+                    placeholder="Describe the hazard so other riders can avoid it"
+                    rows={4}
+                    required
+                  />
+                </div>
+
+                <div className="modal-grid-two">
+                  <div className="form-field">
+                    <label htmlFor="type">Type</label>
+                    <select id="type" name="type" className="input" value={formData.type} onChange={onFormChange}>
+                      <option value="pothole">Pothole</option>
+                      <option value="debris">Debris</option>
+                      <option value="lighting">Lighting</option>
+                      <option value="collision">Collision</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label htmlFor="severity">Severity</label>
+                    <select id="severity" name="severity" className="input" value={formData.severity} onChange={onFormChange}>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={detectCurrentLocation}
-                  disabled={currentLocation.loading || submitting}
-                >
-                  {currentLocation.loading ? 'Detecting...' : 'Use My Location'}
-                </button>
-              </div>
+              </section>
 
-              {currentLocation.error && <p className="form-error">{currentLocation.error}</p>}
+              <section className="form-section">
+                <div className="form-section-head">
+                  <h4>Location</h4>
+                  <p>Use your live position so riders can trust the report.</p>
+                </div>
 
-              <div>
-                <label htmlFor="hazardImage">Hazard Image (Live camera or gallery)</label>
+                <div className="location-panel">
+                  <div className="location-panel-main">
+                    <label>Current Location</label>
+                    <div className="location-readout">
+                      <IconLocation />
+                      {currentLocation.loading
+                        ? 'Detecting current location...'
+                        : currentLocation.resolvingName
+                          ? 'Resolving location name...'
+                          : currentLocation.name || 'Location not detected yet'}
+                    </div>
+                  </div>
+                  <div className="location-panel-actions">
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={detectCurrentLocation}
+                      disabled={currentLocation.loading || submitting}
+                    >
+                      {currentLocation.loading ? 'Detecting...' : 'Use My Location'}
+                    </button>
+                  </div>
+                </div>
+
+                {hasDetectedLocation && (
+                  <p className="location-coordinates">
+                    Coordinates: {detectedLatitude.toFixed(6)}, {detectedLongitude.toFixed(6)}
+                  </p>
+                )}
+
+                {currentLocation.error && <p className="form-error">{currentLocation.error}</p>}
+              </section>
+
+              <section className="form-section">
+                <div className="form-section-head">
+                  <h4>Photo Evidence</h4>
+                  <p>Add an image from camera or gallery to improve report quality.</p>
+                </div>
+
                 <div className="camera-actions">
                   <button
                     type="button"
@@ -652,15 +820,18 @@ export default function Hazards() {
                   </div>
                 )}
 
-                <input
-                  ref={fileInputRef}
-                  id="hazardImage"
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="input"
-                  onChange={onImageChange}
-                />
+                <div className="form-field">
+                  <label htmlFor="hazardImage">Hazard Image (Camera or Gallery)</label>
+                  <input
+                    ref={fileInputRef}
+                    id="hazardImage"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="input"
+                    onChange={onImageChange}
+                  />
+                </div>
 
                 {cameraError && <p className="form-error">{cameraError}</p>}
 
@@ -669,7 +840,7 @@ export default function Hazards() {
                     <img src={imagePreviewUrl} alt="Hazard preview" className="hazard-image-preview" />
                   </div>
                 )}
-              </div>
+              </section>
 
               {formError && <p className="form-error">{formError}</p>}
 
@@ -679,6 +850,53 @@ export default function Hazards() {
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={submitting}>
                   {submitting ? 'Saving Hazard...' : 'Submit Report'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isResolveModalOpen && (
+        <div className="modal-backdrop" onClick={closeResolveModal}>
+          <div className="modal-card modal-card-compact" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>Mark Hazard as Solved</h3>
+                <p className="modal-subtitle">Provide the solve result so riders know what was fixed.</p>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={closeResolveModal} disabled={resolveSubmitting}>Close</button>
+            </div>
+
+            <form className="modal-form" onSubmit={submitResolveHazard}>
+              <section className="form-section">
+                <div className="form-field">
+                  <label>Hazard</label>
+                  <p className="resolve-hazard-title">{hazardToResolve?.title || 'Selected hazard'}</p>
+                </div>
+
+                <div className="form-field">
+                  <label htmlFor="solveResult">Solve Result</label>
+                  <textarea
+                    id="solveResult"
+                    className="input textarea"
+                    value={solveResult}
+                    onChange={(event) => setSolveResult(event.target.value)}
+                    placeholder="Describe what was fixed and current riding condition"
+                    rows={4}
+                    required
+                  />
+                </div>
+              </section>
+
+              {solveError && <p className="form-error">{solveError}</p>}
+
+              <div className="modal-actions">
+                <button type="button" className="btn btn-ghost" onClick={closeResolveModal} disabled={resolveSubmitting}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={resolveSubmitting}>
+                  {resolveSubmitting ? 'Saving...' : 'Confirm Solved'}
                 </button>
               </div>
             </form>
