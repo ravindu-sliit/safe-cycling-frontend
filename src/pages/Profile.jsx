@@ -43,6 +43,13 @@ const defaultPreferences = {
   },
 }
 
+const normalizeRoleValue = (value) => {
+  const role = String(value || 'user').toLowerCase()
+  return role === 'organisation' ? 'organization' : role
+}
+
+const supportsCyclingStyle = (role) => normalizeRoleValue(role) === 'user'
+
 const extractProfilePayload = (payload) => payload?.data || payload?.user || payload?.profile || payload || {}
 
 const normalizePreferences = (preferences = {}) => ({
@@ -62,6 +69,7 @@ const normalizePreferences = (preferences = {}) => ({
 
 const buildStoredUserSnapshot = (user = {}) => {
   const id = user.id || user._id || ''
+  const role = normalizeRoleValue(user.role || 'user')
 
   return {
     ...user,
@@ -69,9 +77,9 @@ const buildStoredUserSnapshot = (user = {}) => {
     _id: id,
     name: user.name || '',
     email: user.email || '',
-    cyclingStyle: user.cyclingStyle || 'commuter',
+    cyclingStyle: supportsCyclingStyle(role) ? (user.cyclingStyle || 'commuter') : '',
     profileImageUrl: user.profileImageUrl || '',
-    role: user.role || 'user',
+    role,
     isVerified: Boolean(user.isVerified),
     twoFactorEnabled: Boolean(user.twoFactorEnabled),
     createdAt: user.createdAt || '',
@@ -82,15 +90,16 @@ const buildStoredUserSnapshot = (user = {}) => {
 
 const buildProfileState = (profile = {}, fallbackUser = {}) => {
   const id = profile._id || profile.id || fallbackUser._id || fallbackUser.id || ''
+  const role = normalizeRoleValue(profile.role || fallbackUser.role || 'user')
 
   return {
     id,
     _id: id,
     name: profile.name || fallbackUser.name || '',
     email: profile.email || fallbackUser.email || '',
-    cyclingStyle: profile.cyclingStyle || fallbackUser.cyclingStyle || 'commuter',
+    cyclingStyle: supportsCyclingStyle(role) ? (profile.cyclingStyle || fallbackUser.cyclingStyle || 'commuter') : '',
     profileImageUrl: profile.profileImageUrl || fallbackUser.profileImageUrl || '',
-    role: profile.role || fallbackUser.role || 'user',
+    role,
     isVerified: Boolean(profile.isVerified ?? fallbackUser.isVerified),
     twoFactorEnabled: Boolean(profile.twoFactorEnabled ?? fallbackUser.twoFactorEnabled),
     createdAt: profile.createdAt || fallbackUser.createdAt || '',
@@ -133,7 +142,7 @@ const formatDate = (value) => {
 
 const buildDetailsForm = (profile = {}) => ({
   name: profile.name || '',
-  cyclingStyle: profile.cyclingStyle || 'commuter',
+  cyclingStyle: supportsCyclingStyle(profile.role) ? (profile.cyclingStyle || 'commuter') : '',
 })
 
 const buildEmailForm = (profile = {}) => ({
@@ -189,6 +198,7 @@ export default function Profile() {
   const [isResendingVerification, setIsResendingVerification] = useState(false)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const supportsProfileCyclingStyle = supportsCyclingStyle(profileDetails.role)
 
   const syncStoredUser = (profile) => {
     updateUser(buildStoredUser(profile, buildStoredUserSnapshot(user)))
@@ -354,10 +364,15 @@ export default function Profile() {
     setIsSavingDetails(true)
 
     try {
-      const { data } = await api.patch('/users/me', {
+      const payload = {
         name: detailsForm.name.trim(),
-        cyclingStyle: detailsForm.cyclingStyle,
-      })
+      }
+
+      if (supportsProfileCyclingStyle) {
+        payload.cyclingStyle = detailsForm.cyclingStyle
+      }
+
+      const { data } = await api.patch('/users/me', payload)
 
       const profile = buildProfileState(extractProfilePayload(data), profileDetails)
       setProfileDetails(profile)
@@ -757,14 +772,16 @@ export default function Profile() {
                         <span className="pro-detail-value">{profileDetails.email || 'Not available'}</span>
                       </div>
                     </div>
-                    <div className="pro-detail-row">
-                      <div className="pro-detail-content">
-                        <span className="pro-detail-label">Cycling Style</span>
-                        <span className="pro-detail-value">
-                          {cyclingStyles.find((style) => style.value === profileDetails.cyclingStyle)?.label || 'Not selected'}
-                        </span>
+                    {supportsProfileCyclingStyle ? (
+                      <div className="pro-detail-row">
+                        <div className="pro-detail-content">
+                          <span className="pro-detail-label">Cycling Style</span>
+                          <span className="pro-detail-value">
+                            {cyclingStyles.find((style) => style.value === profileDetails.cyclingStyle)?.label || 'Not selected'}
+                          </span>
+                        </div>
                       </div>
-                    </div>
+                    ) : null}
                   </div>
                 ) : (
                   <form className="pro-edit-form" onSubmit={handleDetailsSubmit}>
@@ -781,24 +798,30 @@ export default function Profile() {
                       />
                     </div>
 
-                    <div className="pro-form-group">
-                      <label className="pro-form-label" htmlFor="profile-style">Cycling Style</label>
-                      <select
-                        id="profile-style"
-                        className="pro-form-input pro-form-select"
-                        name="cyclingStyle"
-                        value={detailsForm.cyclingStyle}
-                        onChange={handleDetailsChange}
-                      >
-                        {cyclingStyles.map((style) => (
-                          <option key={style.value} value={style.value}>
-                            {style.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {supportsProfileCyclingStyle ? (
+                      <div className="pro-form-group">
+                        <label className="pro-form-label" htmlFor="profile-style">Cycling Style</label>
+                        <select
+                          id="profile-style"
+                          className="pro-form-input pro-form-select"
+                          name="cyclingStyle"
+                          value={detailsForm.cyclingStyle}
+                          onChange={handleDetailsChange}
+                        >
+                          {cyclingStyles.map((style) => (
+                            <option key={style.value} value={style.value}>
+                              {style.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
 
-                    <p className="pro-helper-text">Email address and password now use dedicated secure forms below.</p>
+                    <p className="pro-helper-text">
+                      {supportsProfileCyclingStyle
+                        ? 'Email address and password now use dedicated secure forms below.'
+                        : 'Email address, password, and other account settings use the dedicated secure forms below.'}
+                    </p>
 
                     <div className="pro-form-actions">
                       <button className="pro-btn pro-btn--primary" type="submit" disabled={isSavingDetails}>
