@@ -1,13 +1,66 @@
-import { useState } from 'react'
-
-const INITIAL_REVIEWS = [
-  { id: 1, routeName: 'Scenic River Trail', rating: 5, comment: 'Beautiful trail with amazing views! Perfect for weekend rides. The path is well-maintained and safe for all skill levels. Highly recommended.', author: 'Sarah M.', initials: 'SM', date: '2024-04-07', difficulty: 'Easy', distance: '12 km', likes: 18 },
-  { id: 2, routeName: 'Mountain Challenge Loop', rating: 4, comment: 'Great challenging route with steep climbs. The downhill sections are thrilling but be careful on sharp turns. Bring plenty of water.', author: 'Mike R.', initials: 'MR', date: '2024-04-06', difficulty: 'Hard', distance: '28 km', likes: 9 },
-  { id: 3, routeName: 'City Commuter Route', rating: 3, comment: 'Decent route for daily commuting but can be crowded during peak hours. Bike lanes are available but need maintenance in some sections.', author: 'Alex T.', initials: 'AT', date: '2024-04-05', difficulty: 'Medium', distance: '8 km', likes: 5 },
-]
+import { useEffect, useMemo, useRef, useState } from 'react'
+import api from '../services/api'
 
 const AVATAR_CLASSES = ['avatar-green', 'avatar-orange', 'avatar-purple']
 const DIFFICULTY_CLASS = { Easy: 'badge-easy', Medium: 'badge-medium', Hard: 'badge-hard' }
+const DIFFICULTY_OPTIONS = ['Easy', 'Medium', 'Hard']
+const INITIAL_FORM = {
+  route: '',
+  rating: 5,
+  difficulty: 'Easy',
+  distance: '',
+  comment: '',
+}
+
+function getCurrentUser() {
+  try {
+    const raw = localStorage.getItem('user')
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function extractCurrentUserId(user) {
+  return user?._id || user?.id || user?.userId || null
+}
+
+function getDisplayName(user) {
+  if (!user || typeof user === 'string') return 'Community rider'
+  const name = typeof user.name === 'string' ? user.name.trim() : ''
+  if (name) return name
+  const email = typeof user.email === 'string' ? user.email.trim() : ''
+  if (email) return email
+  return 'Community rider'
+}
+
+function getInitials(name) {
+  const normalized = String(name || '').trim()
+  if (!normalized) return 'CR'
+  const parts = normalized.split(/\s+/).filter(Boolean)
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase()
+}
+
+function extractRequestErrorMessage(error, fallback) {
+  const payload = error?.response?.data
+  if (typeof payload?.message === 'string' && payload.message.trim()) return payload.message
+  if (typeof payload === 'string' && payload.trim()) return payload
+  if (typeof error?.message === 'string' && error.message.trim()) return error.message
+  return fallback
+}
+
+function formatDate(dateString) {
+  if (!dateString) return 'Unknown date'
+  const date = new Date(dateString)
+  if (Number.isNaN(date.getTime())) return 'Unknown date'
+  return date.toLocaleDateString()
+}
+
+function getRouteDistanceValue(route) {
+  const numericDistance = Number(route?.distance)
+  return Number.isFinite(numericDistance) && numericDistance >= 0 ? numericDistance : 0
+}
 
 function StarRating({ rating }) {
   return (
@@ -42,14 +95,262 @@ function IconRoute() {
 }
 
 export default function Reviews() {
-  const [reviews, setReviews] = useState(INITIAL_REVIEWS)
+  const [routes, setRoutes] = useState([])
+  const [selectedRouteId, setSelectedRouteId] = useState('')
+  const [reviews, setReviews] = useState([])
+  const [averages, setAverages] = useState({ rating: 0 })
+  const [count, setCount] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [editingReviewId, setEditingReviewId] = useState('')
+  const [loadError, setLoadError] = useState('')
+  const [formError, setFormError] = useState('')
+  const [formData, setFormData] = useState(INITIAL_FORM)
   const [filter, setFilter] = useState('All')
   const [sort, setSort] = useState('newest')
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false)
+  const [routeSearch, setRouteSearch] = useState('')
+  const [isRouteDropdownOpen, setIsRouteDropdownOpen] = useState(false)
+  const routeDropdownRef = useRef(null)
+
+  const currentUser = useMemo(() => getCurrentUser(), [])
+  const currentUserId = useMemo(() => extractCurrentUserId(currentUser), [currentUser])
+  const isAdmin = String(currentUser?.role || '').toLowerCase() === 'admin'
+  const filteredRouteOptions = useMemo(() => {
+    const query = routeSearch.trim().toLowerCase()
+    if (!query) return routes
+    return routes.filter((route) => String(route?.title || '').toLowerCase().includes(query))
+  }, [routeSearch, routes])
+  const selectedRouteLabel = useMemo(() => {
+    const selectedRoute = routes.find((route) => (route?._id || route?.id || '') === selectedRouteId)
+    return selectedRoute?.title || 'Select route'
+  }, [routes, selectedRouteId])
+
+  const selectRoute = (routeId) => {
+    const nextRoute = routes.find((route) => (route?._id || route?.id || '') === routeId)
+    setSelectedRouteId(routeId)
+    setFormData((prev) => ({ ...prev, route: routeId, distance: getRouteDistanceValue(nextRoute) }))
+    setIsRouteDropdownOpen(false)
+    setRouteSearch('')
+  }
+
+  useEffect(() => {
+    const fetchRoutes = async () => {
+      try {
+        const response = await api.get('/routes')
+        const payload = response?.data
+        const routeRows = Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload)
+            ? payload
+            : []
+        setRoutes(routeRows)
+        const firstRouteId = routeRows[0]?._id || routeRows[0]?.id || ''
+        const firstRouteDistance = getRouteDistanceValue(routeRows[0])
+        setSelectedRouteId(firstRouteId)
+        setFormData((prev) => ({ ...prev, route: firstRouteId, distance: firstRouteDistance }))
+      } catch (error) {
+        setLoadError(extractRequestErrorMessage(error, 'Failed to load routes.'))
+      }
+    }
+
+    fetchRoutes()
+  }, [])
+
+  useEffect(() => {
+    const fetchRouteReviews = async () => {
+      if (!selectedRouteId) {
+        setReviews([])
+        setAverages({ rating: 0 })
+        setCount(0)
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+      setLoadError('')
+      try {
+        const response = await api.get(`/reviews/route/${selectedRouteId}`)
+        const payload = response?.data || {}
+        setReviews(Array.isArray(payload.reviews) ? payload.reviews : [])
+        setAverages(payload.averages || { rating: 0 })
+        setCount(Number(payload.count) || 0)
+      } catch (error) {
+        setLoadError(extractRequestErrorMessage(error, 'Failed to load route reviews.'))
+        setReviews([])
+        setAverages({ rating: 0 })
+        setCount(0)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchRouteReviews()
+  }, [selectedRouteId])
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!routeDropdownRef.current?.contains(event.target)) {
+        setIsRouteDropdownOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const filtered = (filter === 'All' ? reviews : reviews.filter(r => r.difficulty === filter))
-    .slice().sort((a, b) => sort === 'newest' ? b.id - a.id : b.likes - a.likes)
+    .slice().sort((a, b) => (
+      sort === 'newest'
+        ? new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+        : Number(b.likes || 0) - Number(a.likes || 0)
+    ))
 
-  const like = (id) => setReviews(prev => prev.map(r => r.id === id ? { ...r, likes: r.likes + 1 } : r))
+  const resetForm = (routeId = selectedRouteId) => {
+    const selectedRoute = routes.find((route) => (route?._id || route?.id || '') === routeId)
+    const routeDistance = getRouteDistanceValue(selectedRoute)
+    setEditingReviewId('')
+    setFormData({
+      ...INITIAL_FORM,
+      route: routeId || '',
+      distance: routeDistance,
+    })
+    setFormError('')
+  }
+
+  const onFormChange = (event) => {
+    const { name, value } = event.target
+    if (name === 'route') {
+      const selectedRoute = routes.find((route) => (route?._id || route?.id || '') === value)
+      const routeDistance = getRouteDistanceValue(selectedRoute)
+      setFormData((prev) => ({
+        ...prev,
+        route: value,
+        distance: routeDistance,
+      }))
+      return
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: name === 'rating' || name === 'distance' ? Number(value) : value,
+    }))
+  }
+
+  const handleEdit = (review) => {
+    setEditingReviewId(review?._id || review?.id || '')
+    setFormError('')
+    setFormData({
+      route: review?.route?._id || review?.route || selectedRouteId,
+      rating: Number(review?.rating || 5),
+      difficulty: review?.difficulty || 'Easy',
+      distance: Number(review?.distance || 0),
+      comment: review?.comment || '',
+    })
+    setIsReviewModalOpen(true)
+  }
+
+  const openWriteReviewModal = () => {
+    resetForm(selectedRouteId)
+    setIsReviewModalOpen(true)
+  }
+
+  const closeWriteReviewModal = () => {
+    resetForm(selectedRouteId)
+    setIsReviewModalOpen(false)
+  }
+
+  const canEditReview = (review) => {
+    const ownerId = review?.user?._id || review?.user?.id || review?.user
+    return Boolean(currentUserId && ownerId && (ownerId === currentUserId || isAdmin))
+  }
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setFormError('')
+
+    const payload = {
+      route: formData.route || selectedRouteId,
+      rating: Number(formData.rating),
+      difficulty: formData.difficulty,
+      distance: Number(formData.distance),
+      comment: String(formData.comment || '').trim(),
+    }
+
+    if (!payload.route) {
+      setFormError('Please select a route.')
+      setSubmitting(false)
+      return
+    }
+
+    try {
+      if (editingReviewId) {
+        await api.put(`/reviews/${editingReviewId}`, payload)
+      } else {
+        await api.post('/reviews', payload)
+      }
+
+      resetForm(payload.route)
+      setIsReviewModalOpen(false)
+      if (payload.route !== selectedRouteId) {
+        setSelectedRouteId(payload.route)
+      } else {
+        const response = await api.get(`/reviews/route/${selectedRouteId}`)
+        const body = response?.data || {}
+        setReviews(Array.isArray(body.reviews) ? body.reviews : [])
+        setAverages(body.averages || { rating: 0 })
+        setCount(Number(body.count) || 0)
+      }
+    } catch (error) {
+      setFormError(extractRequestErrorMessage(error, 'Failed to save review.'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDelete = async (reviewId) => {
+    if (!isAdmin) return
+    const confirmed = window.confirm('Delete this review? This action cannot be undone.')
+    if (!confirmed) return
+
+    try {
+      await api.delete(`/reviews/${reviewId}`)
+      const response = await api.get(`/reviews/route/${selectedRouteId}`)
+      const body = response?.data || {}
+      setReviews(Array.isArray(body.reviews) ? body.reviews : [])
+      setAverages(body.averages || { rating: 0 })
+      setCount(Number(body.count) || 0)
+    } catch (error) {
+      setFormError(extractRequestErrorMessage(error, 'Failed to delete review.'))
+    }
+  }
+
+  const handleLike = async (reviewId, currentLikes) => {
+    if (!currentUserId) {
+      setFormError('Please log in first to like reviews.')
+      return
+    }
+
+    const nextLikes = Number(currentLikes || 0) + 1
+
+    setReviews((previous) => previous.map((review) => (
+      (review?._id || review?.id) === reviewId
+        ? { ...review, likes: nextLikes }
+        : review
+    )))
+
+    try {
+      await api.post(`/reviews/${reviewId}/like`)
+    } catch (error) {
+      setReviews((previous) => previous.map((review) => (
+        (review?._id || review?.id) === reviewId
+          ? { ...review, likes: Number(currentLikes || 0) }
+          : review
+      )))
+      setFormError(extractRequestErrorMessage(error, 'Failed to like this review.'))
+    }
+  }
 
   return (
     <div className="page">
@@ -60,11 +361,153 @@ export default function Reviews() {
             <h1>Route Reviews</h1>
             <p>Discover and share cycling route experiences with the community.</p>
           </div>
-          <button className="btn btn-primary">
-            <IconPlus /> Write Review
-          </button>
+          <div className="filter-bar-spacer" style={{ display: 'flex', gap: '0.5rem' }}>
+            <div ref={routeDropdownRef} style={{ position: 'relative', minWidth: '260px' }}>
+              <button
+                type="button"
+                className="sort-select"
+                style={{ width: '100%', textAlign: 'left', height: '2.7rem' }}
+                onClick={() => setIsRouteDropdownOpen((prev) => !prev)}
+              >
+                {selectedRouteLabel}
+              </button>
+              {isRouteDropdownOpen && (
+                <div
+                  className="card"
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 0.35rem)',
+                    left: 0,
+                    right: 0,
+                    zIndex: 20,
+                    padding: '0.5rem',
+                  }}
+                >
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="Search route..."
+                    value={routeSearch}
+                    onChange={(event) => setRouteSearch(event.target.value)}
+                    autoFocus
+                  />
+                  <div style={{ marginTop: '0.35rem', maxHeight: '220px', overflowY: 'auto' }}>
+                    {filteredRouteOptions.length === 0 ? (
+                      <div className="card-desc" style={{ padding: '0.4rem 0.2rem' }}>
+                        No routes found.
+                      </div>
+                    ) : (
+                      filteredRouteOptions.map((route) => {
+                        const routeId = route?._id || route?.id || ''
+                        const isSelected = routeId === selectedRouteId
+                        return (
+                          <button
+                            key={routeId || route?.title}
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            style={{ width: '100%', justifyContent: 'flex-start' }}
+                            onClick={() => selectRoute(routeId)}
+                          >
+                            {isSelected ? '✓ ' : ''}{route?.title || 'Untitled route'}
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <button className="btn btn-primary" onClick={openWriteReviewModal}>
+              <IconPlus /> Write Review
+            </button>
+          </div>
         </div>
       </div>
+
+      {isReviewModalOpen && (
+        <div className="modal-backdrop" onClick={closeWriteReviewModal}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{editingReviewId ? 'Edit Review' : 'Write Review'}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={closeWriteReviewModal}>Close</button>
+            </div>
+            <form className="modal-form" onSubmit={handleSubmit}>
+              <div className="modal-grid-two">
+                <div>
+                  <label htmlFor="route">Route</label>
+                  <select id="route" name="route" className="input" value={formData.route} onChange={onFormChange} required>
+                    {routes.map((route) => {
+                      const routeId = route?._id || route?.id || ''
+                      return (
+                        <option key={routeId || route?.title} value={routeId}>
+                          {route?.title || 'Untitled route'}
+                        </option>
+                      )
+                    })}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="rating">Rating</label>
+                  <select id="rating" name="rating" className="input" value={formData.rating} onChange={onFormChange} required>
+                    {[1, 2, 3, 4, 5].map((value) => (
+                      <option key={value} value={value}>{value}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="modal-grid-two">
+                <div>
+                  <label htmlFor="difficulty">Difficulty</label>
+                  <select id="difficulty" name="difficulty" className="input" value={formData.difficulty} onChange={onFormChange} required>
+                    {DIFFICULTY_OPTIONS.map((value) => (
+                      <option key={value} value={value}>{value}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="distance">Distance (km)</label>
+                  <input
+                    id="distance"
+                    name="distance"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    className="input"
+                    value={formData.distance}
+                    readOnly
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="comment">Comment</label>
+                <textarea
+                  id="comment"
+                  name="comment"
+                  className="input textarea"
+                  value={formData.comment}
+                  onChange={onFormChange}
+                  rows={3}
+                  maxLength={1000}
+                  placeholder="Share your route experience..."
+                />
+              </div>
+
+              {formError ? <p className="form-error">{formError}</p> : null}
+              <div className="modal-actions">
+                <button type="button" className="btn btn-ghost" onClick={closeWriteReviewModal} disabled={submitting}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  <IconPlus /> {submitting ? 'Saving...' : editingReviewId ? 'Update Review' : 'Submit Review'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Controls */}
       <div className="filter-bar">
@@ -92,9 +535,9 @@ export default function Reviews() {
       {/* Summary tiles */}
       <div className="review-summary-grid">
         {[
-          { label: 'Total Reviews', value: reviews.length, icon: '📝' },
-          { label: 'Avg. Rating', value: (reviews.reduce((a, r) => a + r.rating, 0) / reviews.length).toFixed(1) + ' ★', icon: '⭐' },
-          { label: 'Total Likes', value: reviews.reduce((a, r) => a + r.likes, 0), icon: '❤️' },
+          { label: 'Total Reviews', value: count, icon: '📝' },
+          { label: 'Avg. Rating', value: `${Number(averages?.rating || 0).toFixed(1)} ★`, icon: '⭐' },
+          { label: 'Total Likes', value: reviews.reduce((a, r) => a + Number(r.likes || 0), 0), icon: '❤️' },
         ].map(s => (
           <div key={s.label} className="summary-tile">
             <span className="summary-icon">{s.icon}</span>
@@ -107,52 +550,80 @@ export default function Reviews() {
       </div>
 
       {/* Review cards */}
+      {loading && (
+        <div className="empty-state">
+          <p>Loading reviews...</p>
+        </div>
+      )}
+
+      {!loading && loadError && (
+        <div className="empty-state">
+          <p>{loadError}</p>
+        </div>
+      )}
+
       <div className="review-list">
-        {filtered.map((review, i) => (
-          <div key={review.id} className="card">
+        {!loading && !loadError && filtered.map((review, i) => {
+          const reviewId = review?._id || review?.id
+          const routeTitle = review?.route?.title || review?.routeName || 'Route'
+          const author = getDisplayName(review?.user)
+          const initials = getInitials(author)
+          return (
+          <div key={reviewId} className="card">
             <div className="card-body">
               <div className="review-row">
                 {/* Avatar */}
                 <div className={`review-avatar ${AVATAR_CLASSES[i % AVATAR_CLASSES.length]}`}>
-                  {review.initials}
+                  {initials}
                 </div>
 
                 {/* Content */}
                 <div className="review-content">
                   <div className="review-meta-row">
                     <div>
-                      <h3 className="review-route-name">{review.routeName}</h3>
+                      <h3 className="review-route-name">{routeTitle}</h3>
                       <div className="review-tags">
-                        <StarRating rating={review.rating} />
+                        <StarRating rating={Number(review.rating || 0)} />
                         <DifficultyBadge difficulty={review.difficulty} />
                         <div className="meta-row">
-                          <IconRoute /> {review.distance}
+                          <IconRoute /> {Number(review.distance || 0)} km
                         </div>
                       </div>
                     </div>
                     <div className="review-author-col">
-                      <div className="review-author">{review.author}</div>
-                      <div className="review-date">{review.date}</div>
+                      <div className="review-author">{author}</div>
+                      <div className="review-date">{formatDate(review.createdAt)}</div>
                     </div>
                   </div>
 
                   <p className="review-comment">{review.comment}</p>
 
                   <div className="review-actions">
-                    <button onClick={() => like(review.id)} className="btn btn-ghost btn-sm">
-                      <IconHeart /> {review.likes}
+                    <button className="btn btn-ghost btn-sm" onClick={() => handleLike(reviewId, review.likes)}>
+                      <IconHeart /> {Number(review.likes || 0)}
                     </button>
-                    <button className="btn btn-ghost btn-sm"><IconComment /> Reply</button>
+                    <button className="btn btn-ghost btn-sm" disabled><IconComment /> Reply</button>
                     <button className="btn btn-ghost btn-sm"><IconShare /> Share</button>
+                    {canEditReview(review) && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleEdit(review)}>
+                        Edit
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(reviewId)}>
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
 
-      {filtered.length === 0 && (
+      {!loading && !loadError && filtered.length === 0 && (
         <div className="empty-state">
           <div className="empty-emoji">🗺️</div>
           <p>No reviews found for this filter.</p>
