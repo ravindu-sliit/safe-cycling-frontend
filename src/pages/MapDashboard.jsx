@@ -331,6 +331,9 @@ export default function MapDashboard() {
   const [planError, setPlanError] = useState('')
   const [plannedRoute, setPlannedRoute] = useState(null)
   const [plannedRouteBounds, setPlannedRouteBounds] = useState(null)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
+  const [showPlanFormMobile, setShowPlanFormMobile] = useState(true)
+  const [showPlanDetailsMobile, setShowPlanDetailsMobile] = useState(false)
 
   const modeParam = searchParams.get('mode')
 
@@ -397,13 +400,32 @@ export default function MapDashboard() {
   }, [modeParam])
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 767px)')
+
+    const updateViewport = () => {
+      setIsMobileViewport(mediaQuery.matches)
+    }
+
+    updateViewport()
+    mediaQuery.addEventListener('change', updateViewport)
+
+    return () => {
+      mediaQuery.removeEventListener('change', updateViewport)
+    }
+  }, [])
+
+  useEffect(() => {
     if (dashboardMode === DASHBOARD_MODES.explore) {
       setPlanPickMode('')
       setPlannedRoute(null)
       setPlanError('')
+      setShowPlanFormMobile(true)
+      setShowPlanDetailsMobile(false)
       return
     }
 
+    setShowPlanFormMobile(true)
+    setShowPlanDetailsMobile(false)
     setSelectedRoute(null)
     setShowCreatePanel(false)
     setLocationPickMode('')
@@ -492,6 +514,7 @@ export default function MapDashboard() {
     setPlannedRoute(null)
     setPlannedRouteBounds(null)
     setPlanError('')
+    setShowPlanDetailsMobile(false)
   }
 
   const requestPlanLocation = async (mode, lat, lng) => {
@@ -518,6 +541,7 @@ export default function MapDashboard() {
     if (planPickMode === 'start' || planPickMode === 'destination') {
       await requestPlanLocation(planPickMode, lat, lng)
       setPlanPickMode('')
+      setShowPlanFormMobile(true)
       return
     }
 
@@ -603,6 +627,11 @@ export default function MapDashboard() {
         endPoint,
         hazards: hazardMatches,
       })
+
+      if (isMobileViewport) {
+        setShowPlanFormMobile(false)
+        setShowPlanDetailsMobile(false)
+      }
 
       if (routeBoundsCoords.length >= 2) {
         const latitudes = routeBoundsCoords.map(([lat]) => lat)
@@ -893,6 +922,9 @@ export default function MapDashboard() {
     setLocationPickMode('')
   }
 
+  const hidePlanFormForMobilePicking = dashboardMode === DASHBOARD_MODES.plan && isMobileViewport && Boolean(planPickMode)
+  const hidePlanFormForMobile = dashboardMode === DASHBOARD_MODES.plan && isMobileViewport && !showPlanFormMobile
+
   return (
     <div className="dashboard-page relative">
       <div className="map-section relative">
@@ -1008,7 +1040,25 @@ export default function MapDashboard() {
             </div>
           )}
 
-          {dashboardMode === DASHBOARD_MODES.plan ? (
+          {dashboardMode === DASHBOARD_MODES.plan && hidePlanFormForMobilePicking ? (
+            <div className="absolute left-4 top-4 z-[1000] w-[min(24rem,calc(100%-2rem))] rounded-2xl border border-sky-400/25 bg-slate-950/90 px-4 py-3 text-sm text-sky-100 shadow-2xl backdrop-blur-md">
+              Tap the map to set the {planPickMode === 'start' ? 'start location' : 'destination'}.
+            </div>
+          ) : null}
+
+          {dashboardMode === DASHBOARD_MODES.plan && hidePlanFormForMobile && !hidePlanFormForMobilePicking ? (
+            <div className="absolute left-4 top-4 z-[1000] flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPlanFormMobile(true)}
+                className="rounded-xl border border-sky-400/30 bg-slate-950/90 px-3 py-2 text-xs font-semibold text-sky-100 shadow-xl backdrop-blur"
+              >
+                Edit Plan
+              </button>
+            </div>
+          ) : null}
+
+          {dashboardMode === DASHBOARD_MODES.plan && !hidePlanFormForMobilePicking && !hidePlanFormForMobile ? (
             <div className="absolute left-4 top-4 z-[1000] w-[min(28rem,calc(100%-2rem))] space-y-3 rounded-3xl border border-sky-400/20 bg-slate-950/90 p-4 shadow-2xl backdrop-blur-md">
               <div>
                 <div className="text-xs uppercase tracking-[0.24em] text-sky-300/80">Plan Ride</div>
@@ -1039,7 +1089,12 @@ export default function MapDashboard() {
                   <div className="mt-2 flex gap-2">
                     <button
                       type="button"
-                      onClick={() => setPlanPickMode((current) => (current === 'start' ? '' : 'start'))}
+                      onClick={() => {
+                        setPlanPickMode((current) => (current === 'start' ? '' : 'start'))
+                        if (isMobileViewport) {
+                          setShowPlanFormMobile(false)
+                        }
+                      }}
                       className={`rounded-xl px-3 py-2 text-xs font-medium transition ${planPickMode === 'start' ? 'bg-emerald-500 text-slate-950' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}
                     >
                       {planPickMode === 'start' ? 'Click map to set start' : 'Pick start on map'}
@@ -1061,7 +1116,12 @@ export default function MapDashboard() {
                   <div className="mt-2 flex gap-2">
                     <button
                       type="button"
-                      onClick={() => setPlanPickMode((current) => (current === 'destination' ? '' : 'destination'))}
+                      onClick={() => {
+                        setPlanPickMode((current) => (current === 'destination' ? '' : 'destination'))
+                        if (isMobileViewport) {
+                          setShowPlanFormMobile(false)
+                        }
+                      }}
                       className={`rounded-xl px-3 py-2 text-xs font-medium transition ${planPickMode === 'destination' ? 'bg-emerald-500 text-slate-950' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}
                     >
                       {planPickMode === 'destination' ? 'Click map to set destination' : 'Pick destination on map'}
@@ -1081,7 +1141,7 @@ export default function MapDashboard() {
                 <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{planError}</div>
               ) : null}
 
-              {plannedRoute ? (
+              {plannedRoute && !isMobileViewport ? (
                 <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-3">
                   <div>
                     <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Trip Summary</div>
@@ -1099,7 +1159,7 @@ export default function MapDashboard() {
                 </div>
               ) : null}
 
-              {plannedRoute?.hazards?.length ? (
+              {plannedRoute?.hazards?.length && !isMobileViewport ? (
                 <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3">
                   <div className="text-sm font-semibold text-red-100">Warning: hazards intersect this route</div>
                   <ul className="mt-2 space-y-1 text-sm text-red-200">
@@ -1109,6 +1169,33 @@ export default function MapDashboard() {
                   </ul>
                 </div>
               ) : null}
+            </div>
+          ) : null}
+
+          {dashboardMode === DASHBOARD_MODES.plan && isMobileViewport && showPlanDetailsMobile && plannedRoute ? (
+            <div className="absolute bottom-4 left-4 z-[1000] w-[calc(100%-2rem)] space-y-3 rounded-2xl border border-white/15 bg-slate-950/90 p-3 shadow-2xl backdrop-blur-md">
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Trip Summary</div>
+              <div className="text-sm text-white">
+                {plannedRoute.distanceKm.toFixed(2)} km · {Math.max(1, Math.round(plannedRoute.durationMin))} min
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full bg-sky-500/15 px-3 py-1 text-sky-200">Start: {plannedRoute.startPoint.label}</span>
+                <span className="rounded-full bg-sky-500/15 px-3 py-1 text-sky-200">Destination: {plannedRoute.endPoint.label}</span>
+              </div>
+              {plannedRoute?.hazards?.length ? (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-2">
+                  <div className="text-sm font-semibold text-red-100">Warning: hazards intersect this route</div>
+                  <ul className="mt-1 space-y-1 text-xs text-red-200">
+                    {plannedRoute.hazards.slice(0, 4).map((hazard) => (
+                      <li key={hazard.key}>• {hazard.title} ({hazard.type}, {hazard.severity})</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-2 text-xs text-emerald-200">
+                  Route cleared of detected hazards.
+                </div>
+              )}
             </div>
           ) : null}
 
@@ -1440,6 +1527,13 @@ export default function MapDashboard() {
                   positions={plannedRoute.coordinates.map(([lng, lat]) => [lat, lng])}
                   color={plannedRoute.hazards.length ? '#f59e0b' : '#3b82f6'}
                   weight={7}
+                  eventHandlers={{
+                    click: () => {
+                      if (isMobileViewport) {
+                        setShowPlanDetailsMobile(true)
+                      }
+                    },
+                  }}
                 />
               ) : null}
 
