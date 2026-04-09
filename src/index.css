@@ -1516,8 +1516,6 @@ label {
   gap: 20px;
 }
 
-<<<<<<< Updated upstream
-=======
 .hazard-pin-icon-wrapper {
   background: transparent;
   border: none;
@@ -1622,8 +1620,6 @@ label {
   font-size: 11px;
   color: #cbd5e1;
 }
-
->>>>>>> Stashed changes
 .profile-layout {
   max-width: 1080px;
   display: grid;
@@ -3013,14 +3009,10 @@ label {
   flex-wrap: wrap;
 }
 
-<<<<<<< Updated upstream
-=======
 .admin-editor-textarea {
   resize: vertical;
   min-height: 110px;
 }
-
->>>>>>> Stashed changes
 .admin-table-toolbar {
   display: flex;
   align-items: center;
