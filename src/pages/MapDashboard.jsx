@@ -430,6 +430,8 @@ export default function MapDashboard() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true
+
     const fetchHazards = async () => {
       try {
         const response = await api.get('/hazards')
@@ -437,14 +439,18 @@ export default function MapDashboard() {
         const sortedHazards = rows.slice().sort((left, right) => (
           new Date(right?.createdAt || 0).getTime() - new Date(left?.createdAt || 0).getTime()
         ))
-        setAllHazards(sortedHazards)
-      } catch (hazardError) {
-        console.error('Failed to fetch hazards for map markers:', hazardError)
-        setAllHazards([])
+
       }
     }
 
     fetchHazards()
+
+    const hazardsRefreshIntervalId = window.setInterval(fetchHazards, 15000)
+
+    return () => {
+      isMounted = false
+      window.clearInterval(hazardsRefreshIntervalId)
+    }
   }, [])
 
   const requestUserLocation = (onSuccess) => {
@@ -1363,7 +1369,11 @@ export default function MapDashboard() {
                 const hazardSeverity = formatHazardLabel(hazard?.severity, 'Medium')
                 const hazardStatus = normalizeHazardStatus(hazard?.status)
                 const currentStatus = formatHazardLabel(hazard?.status, 'Reported')
-                const uploadTime = formatHazardUploadTime(hazard?.createdAt)
+                const latestUpdate = getLatestHazardUpdate(hazard)
+                const latestComment = String(latestUpdate?.comment || '').trim()
+                const latestImageUrl = String(latestUpdate?.imageUrl || hazard?.imageUrl || '').trim()
+                const latestUpdatedAt = latestUpdate?.createdAt || hazard?.updatedAt || hazard?.createdAt
+                const uploadTime = formatHazardUploadTime(latestUpdatedAt)
                 const hazardId = hazard?._id || hazard?.id
 
                 return (
@@ -1388,14 +1398,17 @@ export default function MapDashboard() {
                           </div>
                           <div className="card-meta">
                             <span className="meta-row"><strong>Type:</strong> {hazardType}</span>
-                            <span className="meta-row"><strong>Upload time:</strong> {uploadTime}</span>
+                            <span className="meta-row"><strong>Updated:</strong> {uploadTime}</span>
+                            {latestComment ? (
+                              <span className="meta-row map-hazard-popup-comment"><strong>Details:</strong> {latestComment}</span>
+                            ) : null}
                           </div>
                         </div>
-                        {hazard?.imageUrl ? (
+                        {latestImageUrl ? (
                           <div className="hazard-card-image-wrap">
                             <img
                               className="hazard-card-image"
-                              src={hazard.imageUrl}
+                              src={latestImageUrl}
                               alt={hazard?.title || 'Hazard image'}
                               loading="lazy"
                             />
@@ -1513,6 +1526,15 @@ function normalizeHazardStatus(status) {
   }
 
   return 'reported'
+}
+
+function getLatestHazardUpdate(hazard) {
+  const updates = Array.isArray(hazard?.statusUpdates) ? hazard.statusUpdates : []
+  if (updates.length === 0) return null
+
+  return updates
+    .slice()
+    .sort((left, right) => new Date(right?.createdAt || 0).getTime() - new Date(left?.createdAt || 0).getTime())[0]
 }
 
 function getNextHazardSeverity(current) {
