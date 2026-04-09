@@ -1152,6 +1152,15 @@ label {
   margin-bottom: 16px;
 }
 
+.hazard-card-clickable {
+  cursor: pointer;
+}
+
+.hazard-card-clickable:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.7);
+  outline-offset: 2px;
+}
+
 .hazard-card-image-wrap {
   margin-bottom: 14px;
   border-radius: var(--radius-sm);
@@ -1924,6 +1933,11 @@ label {
 .map-hazard-status-resolved {
   background: rgba(34, 197, 94, 0.2);
   color: #bbf7d0;
+}
+
+.map-hazard-popup-comment {
+  align-items: flex-start;
+  line-height: 1.5;
 }
 
 .map-hazard-popup-card .hazard-card-image-wrap {

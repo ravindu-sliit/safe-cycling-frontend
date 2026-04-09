@@ -17,7 +17,8 @@ const INITIAL_FORM = {
   communityComment: '',
 }
 
-const COORDINATE_PRECISION = 6
+const EARTH_RADIUS_METERS = 6371000
+const COMMUNITY_UPDATE_MAX_DISTANCE_METERS = 5
 
 function SeverityBadge({ severity }) {
   const normalized = String(severity || 'low').toLowerCase()
@@ -70,13 +71,25 @@ function getHazardCoordinates(hazard) {
   return { latitude, longitude }
 }
 
-function normalizeCoordinate(value) {
-  return Number(Number(value).toFixed(COORDINATE_PRECISION))
+function toRadians(value) {
+  return (Number(value) * Math.PI) / 180
 }
 
-function isSameCoordinatePair(first, second) {
-  return normalizeCoordinate(first.latitude) === normalizeCoordinate(second.latitude)
-    && normalizeCoordinate(first.longitude) === normalizeCoordinate(second.longitude)
+function getDistanceInMeters(first, second) {
+  const latitudeDelta = toRadians(Number(second.latitude) - Number(first.latitude))
+  const longitudeDelta = toRadians(Number(second.longitude) - Number(first.longitude))
+  const firstLatitude = toRadians(Number(first.latitude))
+  const secondLatitude = toRadians(Number(second.latitude))
+
+  const haversineFactor = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(firstLatitude) * Math.cos(secondLatitude) * Math.sin(longitudeDelta / 2) ** 2
+
+  const angularDistance = 2 * Math.atan2(Math.sqrt(haversineFactor), Math.sqrt(1 - haversineFactor))
+  return EARTH_RADIUS_METERS * angularDistance
+}
+
+function isWithinDistanceInMeters(first, second, maxDistanceInMeters) {
+  return getDistanceInMeters(first, second) <= Number(maxDistanceInMeters)
 }
 
 function formatDate(dateString) {
@@ -84,6 +97,13 @@ function formatDate(dateString) {
   const date = new Date(dateString)
   if (Number.isNaN(date.getTime())) return 'Unknown date'
   return date.toLocaleDateString()
+}
+
+function formatDateTime(dateString) {
+  if (!dateString) return 'Unknown time'
+  const date = new Date(dateString)
+  if (Number.isNaN(date.getTime())) return 'Unknown time'
+  return date.toLocaleString()
 }
 
 function formatCoordinates(latitude, longitude) {
@@ -162,6 +182,7 @@ export default function Hazards() {
   const [editingHazardImageUrl, setEditingHazardImageUrl] = useState('')
   const [editingHazardLocation, setEditingHazardLocation] = useState(null)
   const [activeMenuHazardId, setActiveMenuHazardId] = useState('')
+  const [selectedHazardDetails, setSelectedHazardDetails] = useState(null)
   const [deletingHazardId, setDeletingHazardId] = useState('')
   const [formData, setFormData] = useState(INITIAL_FORM)
   const [formError, setFormError] = useState('')
@@ -219,6 +240,10 @@ export default function Hazards() {
   )
 
   const emptyFilterLabel = filter === 'all' ? 'matching' : filter
+  const selectedHazardUpdates = useMemo(
+    () => getStatusUpdatesNewestFirst(selectedHazardDetails),
+    [selectedHazardDetails],
+  )
 
   const onFormChange = (event) => {
     const { name, value } = event.target
@@ -417,6 +442,7 @@ export default function Hazards() {
     setEditingHazardLocation(getHazardCoordinates(hazard))
     setFormData({
       ...INITIAL_FORM,
+      status: hazard?.status || 'reported',
       communityComment: '',
     })
     setImageFile(null)
@@ -477,6 +503,14 @@ export default function Hazards() {
     setIsModalOpen(true)
   }
 
+  const openHazardDetailsModal = (hazard) => {
+    setSelectedHazardDetails(hazard || null)
+  }
+
+  const closeHazardDetailsModal = () => {
+    setSelectedHazardDetails(null)
+  }
+
   const handleDeleteHazard = async (hazard) => {
     const hazardId = hazard?._id
     if (!hazardId) return
@@ -495,6 +529,9 @@ export default function Hazards() {
       await api.delete(`/hazards/${hazardId}`)
       if (editingHazardId === hazardId) {
         closeReportModal()
+      }
+      if ((selectedHazardDetails?._id || '') === hazardId) {
+        closeHazardDetailsModal()
       }
       await fetchHazards()
     } catch (error) {
@@ -605,13 +642,14 @@ export default function Hazards() {
         return
       }
 
-      const isSameLocation = isSameCoordinatePair(
+      const isSameLocation = isWithinDistanceInMeters(
         { latitude, longitude },
         editingHazardLocation,
+        COMMUNITY_UPDATE_MAX_DISTANCE_METERS,
       )
 
       if (!isSameLocation) {
-        setFormError('You can post this update only when your longitude and latitude match the hazard location.')
+        setFormError('You can post this update only when you are within about 5 meters of the hazard location.')
         return
       }
 
@@ -631,6 +669,7 @@ export default function Hazards() {
       try {
         const imageUrl = await uploadImageToImageKit()
         const payload = {
+          status: formData.status,
           comment: communityComment,
           imageUrl,
           location: {
@@ -768,7 +807,19 @@ export default function Hazards() {
             const latestUpdate = recentUpdates[0]
 
             return (
-            <div key={hazard._id} className="card card-col">
+            <div
+              key={hazard._id}
+              className="card card-col hazard-card-clickable"
+              role="button"
+              tabIndex={0}
+              onClick={() => openHazardDetailsModal(hazard)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  openHazardDetailsModal(hazard)
+                }
+              }}
+            >
               <div className="card-body card-body-grow">
                 {hazard.imageUrl && (
                   <div className="hazard-card-image-wrap">
@@ -832,7 +883,10 @@ export default function Hazards() {
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    onClick={() => openUpdateModal(hazard)}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      openUpdateModal(hazard)
+                    }}
                   >
                     Add Update
                   </button>
@@ -851,6 +905,81 @@ export default function Hazards() {
         </div>
       )}
 
+      {selectedHazardDetails && (
+        <div className="modal-backdrop" onClick={closeHazardDetailsModal}>
+          <div className="modal-card hazard-details-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Hazard Roadmap</h3>
+              <button className="btn btn-ghost btn-sm" onClick={closeHazardDetailsModal}>Close</button>
+            </div>
+
+            <div className="hazard-details-grid">
+              <section className="hazard-details-section">
+                <h4>{selectedHazardDetails?.title || 'Hazard details'}</h4>
+
+                {selectedHazardDetails?.imageUrl ? (
+                  <div className="hazard-history-item">
+                    <img
+                      className="hazard-history-image"
+                      src={selectedHazardDetails.imageUrl}
+                      alt={selectedHazardDetails?.title || 'Hazard image'}
+                    />
+                  </div>
+                ) : (
+                  <p className="hazard-popup-no-image">No image uploaded yet.</p>
+                )}
+
+                <p className="card-desc">{selectedHazardDetails?.description || 'No description provided.'}</p>
+
+                <div className="card-meta">
+                  <span className="meta-row">Type: {selectedHazardDetails?.type || 'other'}</span>
+                  <span className="meta-row">Severity: {selectedHazardDetails?.severity || 'medium'}</span>
+                  <span className="meta-row">Current Status: {selectedHazardDetails?.status || 'reported'}</span>
+                  <span className="meta-row">Reported: {formatDateTime(selectedHazardDetails?.createdAt)}</span>
+                  <span className="meta-row">Last Updated: {formatDateTime(selectedHazardDetails?.updatedAt || selectedHazardDetails?.createdAt)}</span>
+                </div>
+              </section>
+
+              <section className="hazard-details-section">
+                <h4>Previous Updates</h4>
+
+                {selectedHazardUpdates.length === 0 ? (
+                  <div className="hazard-comment-item">
+                    <p>No community updates available yet.</p>
+                  </div>
+                ) : (
+                  <div className="hazard-comment-list">
+                    {selectedHazardUpdates.map((update, index) => (
+                      <article className="hazard-comment-item" key={update?._id || `${update?.createdAt || 'update'}-${index}`}>
+                        <div className="hazard-comment-head">
+                          <strong>{update?.user?.name || update?.user?.email || 'Community rider'}</strong>
+                          <span>{formatDateTime(update?.createdAt)}</span>
+                        </div>
+
+                        {update?.status ? (
+                          <span className="hazard-time-badge">Status: {update.status}</span>
+                        ) : null}
+
+                        <p>{update?.comment || 'No update comment provided.'}</p>
+
+                        {update?.imageUrl ? (
+                          <img
+                            className="hazard-history-image"
+                            src={update.imageUrl}
+                            alt="Hazard update"
+                            loading="lazy"
+                          />
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isModalOpen && (
         <div className="modal-backdrop" onClick={closeReportModal}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
@@ -863,6 +992,21 @@ export default function Hazards() {
               {isStatusUpdateMode ? (
                 <>
                   <p className="card-desc">Add a current image and a situation comment for this hazard. New updates appear first.</p>
+
+                  <div>
+                    <label htmlFor="status">Current Hazard Status</label>
+                    <select
+                      id="status"
+                      name="status"
+                      className="input"
+                      value={formData.status}
+                      onChange={onFormChange}
+                    >
+                      <option value="reported">Reported</option>
+                      <option value="pending">Pending</option>
+                      <option value="resolved">Resolved</option>
+                    </select>
+                  </div>
 
                   <div>
                     <label htmlFor="communityComment">Current Situation Comment</label>
