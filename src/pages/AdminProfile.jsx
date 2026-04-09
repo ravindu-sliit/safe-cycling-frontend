@@ -73,6 +73,12 @@ const buildStoredUserSnapshot = (user = {}) => {
   }
 }
 
+const resolveProfileImageUrl = (profile = {}, fallbackUser = {}) => (
+  Object.prototype.hasOwnProperty.call(profile, 'profileImageUrl')
+    ? (profile.profileImageUrl ?? '')
+    : (fallbackUser.profileImageUrl || '')
+)
+
 const buildProfileState = (profile = {}, fallbackUser = {}) => {
   const id = profile._id || profile.id || fallbackUser._id || fallbackUser.id || ''
 
@@ -82,7 +88,7 @@ const buildProfileState = (profile = {}, fallbackUser = {}) => {
     name: profile.name || fallbackUser.name || '',
     email: profile.email || fallbackUser.email || '',
     cyclingStyle: '',
-    profileImageUrl: profile.profileImageUrl || fallbackUser.profileImageUrl || '',
+    profileImageUrl: resolveProfileImageUrl(profile, fallbackUser),
     role: profile.role || fallbackUser.role || 'admin',
     isVerified: Boolean(profile.isVerified ?? fallbackUser.isVerified),
     twoFactorEnabled: Boolean(profile.twoFactorEnabled ?? fallbackUser.twoFactorEnabled),
@@ -191,16 +197,6 @@ function IconShield() {
   )
 }
 
-function IconImage() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <circle cx="9" cy="9" r="2" />
-      <path d="m21 15-3.5-3.5a2.12 2.12 0 0 0-3 0L6 20" />
-    </svg>
-  )
-}
-
 function IconDanger() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -216,7 +212,6 @@ const sectionItems = [
   { id: 'details', label: 'Details', note: 'Name and cycling style settings.', Icon: IconProfile },
   { id: 'preferences', label: 'Preferences', note: 'Notification, privacy, and appearance.', Icon: IconSpark },
   { id: 'security', label: 'Security', note: 'Email, password, and 2-step verification.', Icon: IconShield },
-  { id: 'photo', label: 'Profile Photo', note: 'Upload or remove the admin avatar.', Icon: IconImage },
   { id: 'danger', label: 'Danger Zone', note: 'Delete the admin account permanently.', Icon: IconDanger },
 ]
 
@@ -541,17 +536,33 @@ export default function AdminProfile() {
   const handleRemoveProfileImage = async () => {
     if (!profileDetails.id || !profileDetails.profileImageUrl) return
 
+    const previousProfile = profileDetails
+    const optimisticProfile = {
+      ...previousProfile,
+      profileImageUrl: '',
+    }
+
     setError('')
     setSuccessMessage('')
+    setProfileDetails(optimisticProfile)
+    syncStoredUser(optimisticProfile)
     setIsRemovingImage(true)
 
     try {
       const { data } = await api.delete(`/users/${profileDetails.id}/profile-image`)
-      const profile = buildProfileState(extractProfilePayload(data), profileDetails)
+      const profile = buildProfileState(
+        {
+          ...extractProfilePayload(data),
+          profileImageUrl: '',
+        },
+        previousProfile,
+      )
       setProfileDetails(profile)
       syncStoredUser(profile)
       setSuccessMessage(data.message || 'Admin profile image removed successfully.')
     } catch (requestError) {
+      setProfileDetails(previousProfile)
+      syncStoredUser(previousProfile)
       setError(requestError.response?.data?.message || 'Unable to remove the admin profile image.')
     } finally {
       setIsRemovingImage(false)
@@ -615,6 +626,7 @@ export default function AdminProfile() {
   const fullName = profileDetails.name || currentUserSnapshot.name || 'Admin'
   const initials = getInitials(fullName) || 'AD'
   const hasProfileImage = Boolean(profileDetails.profileImageUrl)
+  const isProfileImageActionDisabled = !profileDetails.id || isUploadingImage || isRemovingImage
   const hasPendingTwoFactorAction = Boolean(twoFactorForm.pendingAction)
   const isEnablingTwoFactor = twoFactorForm.pendingAction === 'enable'
 
@@ -637,12 +649,44 @@ export default function AdminProfile() {
                 ) : (
                   <div className="admin-account-avatar-fallback">{initials}</div>
                 )}
+
+                {hasProfileImage ? (
+                  <button
+                    type="button"
+                    className="admin-account-avatar-remove"
+                    onClick={handleRemoveProfileImage}
+                    disabled={isRemovingImage || isUploadingImage}
+                    aria-label="Remove profile photo"
+                    title="Remove profile photo"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4h8v2" />
+                      <path d="M19 6l-1 14H6L5 6" />
+                      <path d="M10 11v6" />
+                      <path d="M14 11v6" />
+                    </svg>
+                  </button>
+                ) : null}
               </div>
 
               <div className="admin-account-sidebar-copy">
                 <h1>{fullName}</h1>
                 <p>{profileDetails.email || 'No email available'}</p>
               </div>
+            </div>
+
+            <div className="admin-account-avatar-actions">
+              <label className={`admin-primary-button admin-account-upload-button${isProfileImageActionDisabled ? ' admin-account-upload-button-disabled' : ''}`}>
+                <span>{isUploadingImage ? 'Uploading...' : hasProfileImage ? 'Change Photo' : 'Upload Photo'}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleProfileImageChange}
+                  disabled={isProfileImageActionDisabled}
+                  hidden
+                />
+              </label>
             </div>
 
             <div className="admin-data-summary-row">
@@ -1069,58 +1113,6 @@ export default function AdminProfile() {
                     </div>
                   </form>
                 ) : null}
-              </div>
-            </div>
-          </div>
-
-          <div ref={registerSection('photo')} className="admin-management-panel">
-            <div className="admin-management-header">
-              <div>
-                <h2>Profile Photo</h2>
-                <p>Keep a separate admin identity image without sending admins to the standard rider profile page.</p>
-              </div>
-            </div>
-
-            <div className="admin-account-panel-body">
-              <div className="admin-editor-panel">
-                <div className="admin-account-photo-layout">
-                  <div className="admin-account-photo-frame">
-                    {hasProfileImage ? (
-                      <img
-                        className="admin-account-photo-image"
-                        src={profileDetails.profileImageUrl}
-                        alt={`${fullName} profile`}
-                        onError={handleProfileImageLoadError}
-                      />
-                    ) : (
-                      <div className="admin-account-photo-fallback">{initials}</div>
-                    )}
-                  </div>
-
-                  <div className="admin-account-photo-copy">
-                    <strong>{hasProfileImage ? 'Admin photo is active' : 'Add an admin photo'}</strong>
-                    <p>Upload a JPG, PNG, GIF, or WEBP image up to 5 MB for the admin account.</p>
-                  </div>
-                </div>
-
-                <div className="admin-editor-actions">
-                  <label className="admin-primary-button admin-account-upload-button">
-                    <span>{isUploadingImage ? 'Uploading...' : hasProfileImage ? 'Change Photo' : 'Upload Photo'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleProfileImageChange}
-                      disabled={!profileDetails.id || isUploadingImage || isRemovingImage}
-                      hidden
-                    />
-                  </label>
-
-                  {hasProfileImage ? (
-                    <button type="button" className="admin-action-button admin-action-button-danger" onClick={handleRemoveProfileImage} disabled={isRemovingImage || isUploadingImage}>
-                      {isRemovingImage ? 'Removing...' : 'Remove Photo'}
-                    </button>
-                  ) : null}
-                </div>
               </div>
             </div>
           </div>
