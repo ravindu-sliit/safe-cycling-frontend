@@ -1003,8 +1003,9 @@ export default function MapDashboard() {
                 const hazardTypeKey = normalizeHazardType(hazard?.type)
                 const markerIcon = getHazardMarkerIcon(severity, hazardTypeKey)
                 const hazardType = formatHazardLabel(hazard?.type, 'Other')
+                const hazardSeverity = formatHazardLabel(hazard?.severity, 'Medium')
+                const hazardStatus = normalizeHazardStatus(hazard?.status)
                 const currentStatus = formatHazardLabel(hazard?.status, 'Reported')
-                const uploadedBy = hazard?.createdBy?.name || hazard?.createdBy?.email || 'Unknown rider'
                 const uploadTime = formatHazardUploadTime(hazard?.createdAt)
                 const hazardId = hazard?._id || hazard?.id
 
@@ -1023,11 +1024,13 @@ export default function MapDashboard() {
                         <div className="card-body card-body-grow">
                           <div className="card-title-row">
                             <h3 className="card-title">{hazard?.title || 'Hazard report'}</h3>
-                            <span className="badge badge-medium">{currentStatus}</span>
+                          </div>
+                          <div className="map-hazard-popup-tags">
+                            <span className={`badge badge-${severity}`}>{hazardSeverity}</span>
+                            <span className={`badge map-hazard-status-badge map-hazard-status-${hazardStatus}`}>{currentStatus}</span>
                           </div>
                           <div className="card-meta">
                             <span className="meta-row"><strong>Type:</strong> {hazardType}</span>
-                            <span className="meta-row"><strong>Uploaded by:</strong> {uploadedBy}</span>
                             <span className="meta-row"><strong>Upload time:</strong> {uploadTime}</span>
                           </div>
                         </div>
@@ -1122,6 +1125,16 @@ function normalizeHazardType(type) {
     return value
   }
   return 'other'
+}
+
+function normalizeHazardStatus(status) {
+  const value = String(status || 'reported').toLowerCase().trim()
+
+  if (value === 'pending' || value === 'resolved' || value === 'reported') {
+    return value
+  }
+
+  return 'reported'
 }
 
 function getNextHazardSeverity(current) {
