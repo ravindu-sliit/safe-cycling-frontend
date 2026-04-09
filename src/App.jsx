@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import Login from './pages/Login.jsx'
 import Register from './pages/Register.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
@@ -93,6 +93,7 @@ function IconClose() {
 
 function Navbar() {
   const { pathname } = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { isAuthenticated, user } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -101,6 +102,17 @@ function Navbar() {
   }
 
   const dashboardPath = user?.role === 'admin' ? '/admin/dashboard' : '/dashboard'
+  const isMapPage = pathname === '/dashboard' || pathname === '/admin/map'
+  const mapMode = searchParams.get('mode') === 'plan' ? 'plan' : 'explore'
+
+  const handleMapModeChange = (mode) => {
+    if (!isMapPage) return
+
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.set('mode', mode)
+    setSearchParams(nextParams, { replace: true })
+  }
+
   const accountPath = user?.role === 'admin' ? '/admin/profile' : '/profile'
   const navItems = [
     { to: dashboardPath, label: 'Dashboard', Icon: IconMap },
@@ -137,6 +149,24 @@ function Navbar() {
           </nav>
 
           <div className="topnav-actions">
+            {isMapPage ? (
+              <div className="inline-flex items-center rounded-lg border border-white/15 bg-slate-900/70 p-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => handleMapModeChange('explore')}
+                  className={`rounded-md px-2.5 py-1.5 font-medium transition ${mapMode === 'explore' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300 hover:bg-white/10'}`}
+                >
+                  Explore
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMapModeChange('plan')}
+                  className={`rounded-md px-2.5 py-1.5 font-medium transition ${mapMode === 'plan' ? 'bg-sky-500 text-slate-950' : 'text-slate-300 hover:bg-white/10'}`}
+                >
+                  Plan
+                </button>
+              </div>
+            ) : null}
             <button className="topnav-icon-btn" aria-label="Notifications">
               <span className="notif-dot" />
               <IconBell />

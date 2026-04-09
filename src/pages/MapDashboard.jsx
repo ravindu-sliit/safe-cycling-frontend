@@ -1,9 +1,63 @@
-import { useEffect, useEffectEvent, useState } from 'react'
-import { useLocation, useSearchParams } from 'react-router-dom'
+import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, Polyline, Popup, Marker, useMap, useMapEvents } from 'react-leaflet'
+import { useLocation, useSearchParams } from 'react-router-dom'
+import L from 'leaflet'
+import { renderToStaticMarkup } from 'react-dom/server'
+import {
+  AlertTriangle,
+  Ban,
+  Bird,
+  Car,
+  CircleOff,
+  CircleSlash,
+  CloudFog,
+  CloudRain,
+  Construction,
+  Droplets,
+  Route,
+  ShieldAlert,
+  Snowflake,
+  TrafficCone,
+  TreePine,
+  Waves,
+  Wrench,
+  Zap,
+} from 'lucide-react'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { HAZARD_TYPE_VALUES } from '../constants/hazardTypes'
 import 'leaflet/dist/leaflet.css'
+
+const HAZARD_NEAR_ME_RADIUS_KM = 10
+const HAZARD_INTERSECTION_RADIUS_KM = 0.05
+const DASHBOARD_MODES = {
+  explore: 'explore',
+  plan: 'plan',
+}
+const HAZARD_TYPE_SET = new Set(HAZARD_TYPE_VALUES)
+const HAZARD_MARKER_ICON_VERSION = 'v2'
+const HAZARD_TYPE_ICON_COMPONENTS = {
+  pothole: CircleSlash,
+  debris: TrafficCone,
+  'construction-zone': Construction,
+  'roadside-hazard': AlertTriangle,
+  collision: Car,
+  grounding: CircleOff,
+  'runway-safety': ShieldAlert,
+  rain: CloudRain,
+  fog: CloudFog,
+  snow: Snowflake,
+  'black-ice': Droplets,
+  wildlife: Bird,
+  'equipment-malfunction': Wrench,
+  'infrastructure-failure': Route,
+  lighting: Zap,
+  flooding: Waves,
+  'fallen-tree': TreePine,
+  'road-closure': Ban,
+  'oil-spill': Droplets,
+  other: AlertTriangle,
+}
 
 function normalizePathCoordinates(pathCoordinates) {
   if (!Array.isArray(pathCoordinates)) return []
@@ -88,17 +142,84 @@ function MapUpdater({ center, bounds }) {
   return null;
 }
 
-function MapLocationPicker({ mode, onPick }) {
+function MapInteractionLayer({ onMapClick }) {
   useMapEvents({
     click(event) {
-      if (!mode) return
+      if (typeof onMapClick !== 'function') return
 
       const { lat, lng } = event.latlng
-      onPick(mode, lat, lng)
+      onMapClick(lat, lng)
     },
   })
 
   return null
+}
+
+async function geocodeAddress(query) {
+  const trimmedQuery = String(query || '').trim()
+
+  if (!trimmedQuery) {
+    throw new Error('Please enter a location')
+  }
+
+  const endpoint = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(trimmedQuery)}`
+  const response = await fetch(endpoint)
+
+  if (!response.ok) {
+    throw new Error('Failed to geocode location')
+  }
+
+  const results = await response.json()
+  const match = Array.isArray(results) ? results[0] : null
+
+  if (!match) {
+    throw new Error(`Location not found: ${trimmedQuery}`)
+  }
+
+  return {
+    lat: Number(match.lat),
+    lng: Number(match.lon),
+    label: match.display_name || trimmedQuery,
+  }
+}
+
+async function reverseGeocodeAddress(lat, lng) {
+  const endpoint = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`
+  const response = await fetch(endpoint)
+
+  if (!response.ok) {
+    throw new Error('Failed to reverse geocode location')
+  }
+
+  const payload = await response.json()
+  return payload?.display_name || `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`
+}
+
+async function fetchCyclingRoute(startPoint, endPoint, apiKey) {
+  if (!apiKey) {
+    throw new Error('Missing OpenRouteService API key. Set VITE_OPENROUTESERVICE_API_KEY.')
+  }
+
+  const response = await fetch('https://api.openrouteservice.org/v2/directions/cycling-regular/geojson', {
+    method: 'POST',
+    headers: {
+      Authorization: apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      coordinates: [
+        [startPoint.lng, startPoint.lat],
+        [endPoint.lng, endPoint.lat],
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    throw new Error(payload?.error?.message || 'Failed to fetch cycling route')
+  }
+
+  return response.json()
 }
 
 const extractProfilePayload = (payload) => payload?.data || payload?.user || payload?.profile || payload || {}
@@ -166,7 +287,9 @@ export default function MapDashboard() {
     }
   }, [isAuthenticated, searchParams, setSearchParams, verificationBanner])
 
-  const [routes, setRoutes] = useState([]);
+  const [dashboardMode, setDashboardMode] = useState(DASHBOARD_MODES.explore)
+  const [routes, setRoutes] = useState([])
+  const [allHazards, setAllHazards] = useState([])
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -176,12 +299,12 @@ export default function MapDashboard() {
   const [minEcoScoreFilter, setMinEcoScoreFilter] = useState(9)
   const [showDistanceSlider, setShowDistanceSlider] = useState(false)
   const [showEcoSlider, setShowEcoSlider] = useState(false)
-  const [userLoc, setUserLoc] = useState(null);
-  const [mapCenter, setMapCenter] = useState([6.9271, 79.8612]); // Default Colombo
+  const [hazardSeverityFilter, setHazardSeverityFilter] = useState('all')
+  const [hazardNearMeOnly, setHazardNearMeOnly] = useState(false)
+  const [userLoc, setUserLoc] = useState(null)
+  const [mapCenter, setMapCenter] = useState([6.9271, 79.8612]) // Default Colombo
   const [selectedRoute, setSelectedRoute] = useState(null)
   const [routeBounds, setRouteBounds] = useState(null)
-
-  // Admin CRUD State
   const [showCreatePanel, setShowCreatePanel] = useState(false)
   const [newRouteForm, setNewRouteForm] = useState({
     title: '',
@@ -198,6 +321,93 @@ export default function MapDashboard() {
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [locationPickMode, setLocationPickMode] = useState('')
   const [editingRouteId, setEditingRouteId] = useState('')
+
+  const [planStartInput, setPlanStartInput] = useState('')
+  const [planDestinationInput, setPlanDestinationInput] = useState('')
+  const [planStartLocation, setPlanStartLocation] = useState(null)
+  const [planDestinationLocation, setPlanDestinationLocation] = useState(null)
+  const [planPickMode, setPlanPickMode] = useState('')
+  const [planLoading, setPlanLoading] = useState(false)
+  const [planError, setPlanError] = useState('')
+  const [plannedRoute, setPlannedRoute] = useState(null)
+  const [plannedRouteBounds, setPlannedRouteBounds] = useState(null)
+
+  const modeParam = searchParams.get('mode')
+
+  const hazardPinIcons = useMemo(() => new Map(), [])
+
+  const getHazardMarkerIcon = (severity, type) => {
+    const key = `${HAZARD_MARKER_ICON_VERSION}-${severity}-${type}`
+
+    if (!hazardPinIcons.has(key)) {
+      hazardPinIcons.set(key, createHazardPinIcon(severity, type))
+    }
+
+    return hazardPinIcons.get(key)
+  }
+
+  const mapHazards = useMemo(
+    () => allHazards
+      .map((hazard) => ({
+        hazard,
+        coordinates: getHazardCoordinates(hazard),
+      }))
+      .filter((entry) => Boolean(entry.coordinates)),
+    [allHazards],
+  )
+
+  const filteredMapHazards = useMemo(
+    () => mapHazards.filter(({ hazard, coordinates }) => {
+      const hazardSeverity = normalizeHazardSeverity(hazard?.severity)
+
+      if (hazardSeverityFilter !== 'all' && hazardSeverity !== hazardSeverityFilter) {
+        return false
+      }
+
+      if (hazardNearMeOnly) {
+        if (!userLoc) {
+          return false
+        }
+
+        const distanceFromUser = calculateDistance(userLoc[0], userLoc[1], coordinates.lat, coordinates.lng)
+        return distanceFromUser <= HAZARD_NEAR_ME_RADIUS_KM
+      }
+
+      return true
+    }),
+    [hazardNearMeOnly, hazardSeverityFilter, mapHazards, userLoc],
+  )
+
+  const hazardCoordinateEntries = useMemo(
+    () => allHazards
+      .map((hazard) => ({ hazard, coordinates: getHazardCoordinates(hazard) }))
+      .filter((entry) => Boolean(entry.coordinates)),
+    [allHazards],
+  )
+
+  const activeMapBounds = dashboardMode === DASHBOARD_MODES.plan ? plannedRouteBounds : routeBounds
+
+  useEffect(() => {
+    if (modeParam === DASHBOARD_MODES.plan || modeParam === DASHBOARD_MODES.explore) {
+      setDashboardMode(modeParam)
+      return
+    }
+
+    setDashboardMode(DASHBOARD_MODES.explore)
+  }, [modeParam])
+
+  useEffect(() => {
+    if (dashboardMode === DASHBOARD_MODES.explore) {
+      setPlanPickMode('')
+      setPlannedRoute(null)
+      setPlanError('')
+      return
+    }
+
+    setSelectedRoute(null)
+    setShowCreatePanel(false)
+    setLocationPickMode('')
+  }, [dashboardMode])
 
   useEffect(() => {
     const fetchRoutes = async () => {
@@ -218,6 +428,215 @@ export default function MapDashboard() {
     };
     fetchRoutes();
   }, []);
+
+  useEffect(() => {
+    let isMounted = true
+
+    const fetchHazards = async () => {
+      try {
+        const response = await api.get('/hazards')
+        const rows = Array.isArray(response?.data) ? response.data : []
+        const sortedHazards = rows.slice().sort((left, right) => (
+          new Date(right?.createdAt || 0).getTime() - new Date(left?.createdAt || 0).getTime()
+        ))
+
+        if (!isMounted) {
+          return
+        }
+
+        setAllHazards(sortedHazards)
+      } catch (hazardError) {
+        console.error('Failed to fetch hazards for map markers:', hazardError)
+
+        if (!isMounted) {
+          return
+        }
+
+        setAllHazards([])
+      }
+    }
+
+    fetchHazards()
+
+    const hazardsRefreshIntervalId = window.setInterval(fetchHazards, 15000)
+
+    return () => {
+      isMounted = false
+      window.clearInterval(hazardsRefreshIntervalId)
+    }
+  }, [])
+
+  const requestUserLocation = (onSuccess) => {
+    if (!navigator.geolocation) {
+      showMessage('error', 'Geolocation is not supported by your browser.')
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude
+        const lng = position.coords.longitude
+        const nextLocation = [lat, lng]
+        setUserLoc(nextLocation)
+        setMapCenter(nextLocation)
+        if (typeof onSuccess === 'function') {
+          onSuccess(nextLocation)
+        }
+      },
+      () => {
+        showMessage('error', 'Unable to retrieve your location. Please check browser permissions.')
+      },
+    )
+  }
+
+  const handleHazardNearMeToggle = () => {
+    if (hazardNearMeOnly) {
+      setHazardNearMeOnly(false)
+      return
+    }
+
+    if (userLoc) {
+      setHazardNearMeOnly(true)
+      return
+    }
+
+    requestUserLocation(() => setHazardNearMeOnly(true))
+  }
+
+  const handleHazardSeverityCycle = () => {
+    setHazardSeverityFilter((current) => getNextHazardSeverity(current))
+  }
+
+  const clearPlanRoute = () => {
+    setPlannedRoute(null)
+    setPlannedRouteBounds(null)
+    setPlanError('')
+  }
+
+  const requestPlanLocation = async (mode, lat, lng) => {
+    const nextLocation = {
+      lat,
+      lng,
+      label: await reverseGeocodeAddress(lat, lng).catch(() => `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`),
+    }
+
+    setMapCenter([lat, lng])
+
+    if (mode === 'start') {
+      setPlanStartLocation(nextLocation)
+      setPlanStartInput(nextLocation.label)
+    }
+
+    if (mode === 'destination') {
+      setPlanDestinationLocation(nextLocation)
+      setPlanDestinationInput(nextLocation.label)
+    }
+  }
+
+  const handlePlanMapClick = async (lat, lng) => {
+    if (planPickMode === 'start' || planPickMode === 'destination') {
+      await requestPlanLocation(planPickMode, lat, lng)
+      setPlanPickMode('')
+      return
+    }
+
+    if (locationPickMode === 'start' || locationPickMode === 'end') {
+      handlePickRoutePoint(locationPickMode, lat, lng)
+    }
+  }
+
+  const handlePlanUseGps = async () => {
+    if (!navigator.geolocation) {
+      setPlanError('Geolocation is not supported by your browser.')
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude
+        const lng = position.coords.longitude
+        const label = await reverseGeocodeAddress(lat, lng).catch(() => 'Current location')
+        setMapCenter([lat, lng])
+        setPlanStartLocation({ lat, lng, label })
+        setPlanStartInput(label)
+        setPlanError('')
+      },
+      () => {
+        setPlanError('Unable to retrieve your location. Please check browser permissions.')
+      },
+    )
+  }
+
+  const handlePlanSubmit = async (event) => {
+    event.preventDefault()
+    setPlanError('')
+
+    try {
+      const startPoint = planStartLocation || await geocodeAddress(planStartInput)
+      const endPoint = planDestinationLocation || await geocodeAddress(planDestinationInput)
+
+      if (!Number.isFinite(startPoint.lat) || !Number.isFinite(startPoint.lng)) {
+        throw new Error('Invalid start location')
+      }
+
+      if (!Number.isFinite(endPoint.lat) || !Number.isFinite(endPoint.lng)) {
+        throw new Error('Invalid destination')
+      }
+
+      clearPlanRoute()
+      setPlanLoading(true)
+      const response = await fetchCyclingRoute(startPoint, endPoint, import.meta.env.VITE_OPENROUTESERVICE_API_KEY)
+      const feature = response?.features?.[0]
+      const coordinates = Array.isArray(feature?.geometry?.coordinates) ? feature.geometry.coordinates : []
+      const summary = feature?.properties?.summary || feature?.properties?.segments?.[0] || {}
+      const routeDistanceKm = Number(summary.distance || 0) / 1000
+      const routeDurationMin = Number(summary.duration || 0) / 60
+      const routeBoundsCoords = coordinates.map(([lng, lat]) => [lat, lng])
+      const hazardMatches = coordinates.reduce((matches, coordinate) => {
+        const [lng, lat] = coordinate
+        const routeHazards = hazardCoordinateEntries.filter(({ hazard, coordinates: hazardCoordinates }) => {
+          const distance = calculateDistance(lat, lng, hazardCoordinates.lat, hazardCoordinates.lng)
+          return distance <= HAZARD_INTERSECTION_RADIUS_KM
+        })
+
+        routeHazards.forEach(({ hazard }) => {
+          const hazardId = hazard?._id || hazard?.id || `${hazard?.title || 'hazard'}-${hazard?.createdAt || ''}`
+          if (!matches.some((entry) => entry.key === hazardId)) {
+            matches.push({
+              key: hazardId,
+              title: hazard?.title || 'Unnamed hazard',
+              type: formatHazardLabel(hazard?.type, 'Other'),
+              severity: formatHazardLabel(hazard?.severity, 'Medium'),
+            })
+          }
+        })
+
+        return matches
+      }, [])
+
+      setPlannedRoute({
+        coordinates,
+        distanceKm: routeDistanceKm,
+        durationMin: routeDurationMin,
+        startPoint,
+        endPoint,
+        hazards: hazardMatches,
+      })
+
+      if (routeBoundsCoords.length >= 2) {
+        const latitudes = routeBoundsCoords.map(([lat]) => lat)
+        const longitudes = routeBoundsCoords.map(([, lng]) => lng)
+        setPlannedRouteBounds([
+          [Math.min(...latitudes), Math.min(...longitudes)],
+          [Math.max(...latitudes), Math.max(...longitudes)],
+        ])
+      }
+    } catch (submitError) {
+      setPlanError(submitError?.message || 'Unable to plan this ride')
+    } finally {
+      setPlanLoading(false)
+    }
+  }
 
   // NEW: Handle Filter Clicks & Geolocation
   const handleFilterClick = (filterName) => {
@@ -240,23 +659,7 @@ export default function MapDashboard() {
     if (filterName === 'Near Me') {
       setShowDistanceSlider(false)
       setShowEcoSlider(false)
-      if (!navigator.geolocation) {
-        alert("Geolocation is not supported by your browser.");
-        return;
-      }
-      // Ask browser for location
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const lat = position.coords.latitude;
-          const lng = position.coords.longitude;
-          setUserLoc([lat, lng]);
-          setMapCenter([lat, lng]); // Pan map to user
-          setActiveFilter('Near Me');
-        },
-        () => {
-          alert("Unable to retrieve your location. Please check browser permissions.");
-        }
-      );
+      requestUserLocation(() => setActiveFilter('Near Me'))
     } else {
       setShowDistanceSlider(false)
       setShowEcoSlider(false)
@@ -266,6 +669,8 @@ export default function MapDashboard() {
 
   // NEW: The Filtering Engine
   const filteredRoutes = routes.filter((route) => {
+    if (dashboardMode !== DASHBOARD_MODES.explore) return false
+
     if (activeFilter === 'All') return true;
     if (activeFilter === 'Distance') return Number(route.distance) <= Number(maxDistanceFilter);
     if (activeFilter === 'Eco') return Number(route.ecoScore) >= Number(minEcoScoreFilter);
@@ -284,6 +689,10 @@ export default function MapDashboard() {
   });
 
   useEffect(() => {
+    if (dashboardMode !== DASHBOARD_MODES.explore) {
+      return
+    }
+
     if (!selectedRoute) return
 
     const isVisible = filteredRoutes.some((route) => (route._id || route.id) === (selectedRoute._id || selectedRoute.id))
@@ -504,11 +913,30 @@ export default function MapDashboard() {
   }
 
   return (
-    <div className="dashboard-page relative" style={{ height: '100%', minHeight: '100%' }}>
-      <div className="map-section relative" style={{ padding: 0, height: '100%' }}>
-        <div className="map-container relative" style={{ height: '100%', minHeight: '100%' }}>
+    <div className="dashboard-page relative">
+      <div className="map-section relative">
+        <div className="map-container relative">
           <div className="map-overlay">
-            <div className="map-location-pill ml-auto">Active Routes: {routes.length}</div>
+            <div className="map-location-pill ml-auto">Active Routes: {routes.length} | Hazards: {filteredMapHazards.length}</div>
+          </div>
+
+          <div className="map-hazard-controls">
+            <div className="map-hazard-filter-row">
+              <button
+                type="button"
+                className={`filter-pill ${hazardSeverityFilter !== 'all' ? 'active' : ''}`}
+                onClick={handleHazardSeverityCycle}
+              >
+                {formatHazardLabel(hazardSeverityFilter, 'All')}
+              </button>
+              <button
+                type="button"
+                className={`filter-pill ${hazardNearMeOnly ? 'active' : ''}`}
+                onClick={handleHazardNearMeToggle}
+              >
+                {hazardNearMeOnly ? 'Near Me (Hazards)' : 'Near Me Hazards'}
+              </button>
+            </div>
           </div>
 
           {verificationBanner ? (
@@ -522,40 +950,42 @@ export default function MapDashboard() {
             <span>Live Map</span>
           </div>
 
-          <div className="absolute top-4 left-16 z-[1000] pointer-events-auto flex flex-wrap gap-2 pr-4 max-w-[calc(100%-2rem)]">
-            {[
-              { key: 'All', label: 'All' },
-              { key: 'Distance', label: `<= ${maxDistanceFilter}km` },
-              { key: 'Eco', label: `Eco ${minEcoScoreFilter}+` },
-              { key: 'Near Me', label: userLoc ? '📍 Near Me (Active)' : 'Near Me' },
-            ].map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => handleFilterClick(f.key)}
-                className={`filter-pill ${activeFilter === f.key ? 'active' : ''}`}
-              >
-                {f.label}
-              </button>
-            ))}
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={handleStartNewRoute}
-                className="filter-pill"
-                style={{
-                  background: showCreatePanel ? 'var(--brand-500)' : 'rgba(16, 185, 129, 0.15)',
-                  borderColor: 'var(--brand-500)',
-                  color: showCreatePanel ? '#fff' : 'var(--brand-400)',
-                  fontWeight: '600',
-                }}
-              >
-                ✚ New Route
-              </button>
-            )}
-          </div>
+          {dashboardMode === DASHBOARD_MODES.explore ? (
+            <div className="absolute top-4 left-16 z-[1000] pointer-events-auto flex max-w-[calc(100%-2rem)] flex-wrap gap-2 pr-4">
+              {[
+                { key: 'All', label: 'All' },
+                { key: 'Distance', label: `<= ${maxDistanceFilter}km` },
+                { key: 'Eco', label: `Eco ${minEcoScoreFilter}+` },
+                { key: 'Near Me', label: userLoc ? '📍 Near Me (Active)' : 'Near Me' },
+              ].map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => handleFilterClick(f.key)}
+                  className={`filter-pill ${activeFilter === f.key ? 'active' : ''}`}
+                >
+                  {f.label}
+                </button>
+              ))}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={handleStartNewRoute}
+                  className="filter-pill"
+                  style={{
+                    background: showCreatePanel ? 'var(--brand-500)' : 'rgba(16, 185, 129, 0.15)',
+                    borderColor: 'var(--brand-500)',
+                    color: showCreatePanel ? '#fff' : 'var(--brand-400)',
+                    fontWeight: '600',
+                  }}
+                >
+                  ✚ New Route
+                </button>
+              )}
+            </div>
+          ) : null}
 
-          {showDistanceSlider && (
+          {dashboardMode === DASHBOARD_MODES.explore && showDistanceSlider && (
             <div className="absolute top-14 left-16 z-[1000] pointer-events-auto rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(16,21,33,0.82)] px-3 py-2 shadow-lg backdrop-blur-sm">
               <label className="flex items-center gap-3 text-xs font-medium text-gray-200">
                 <span>Distance {maxDistanceFilter}km</span>
@@ -576,7 +1006,7 @@ export default function MapDashboard() {
             </div>
           )}
 
-          {showEcoSlider && (
+          {dashboardMode === DASHBOARD_MODES.explore && showEcoSlider && (
             <div className="absolute top-14 left-16 z-[1000] pointer-events-auto rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(16,21,33,0.82)] px-3 py-2 shadow-lg backdrop-blur-sm">
               <label className="flex items-center gap-3 text-xs font-medium text-gray-200">
                 <span>Eco Score {minEcoScoreFilter}+</span>
@@ -597,7 +1027,111 @@ export default function MapDashboard() {
             </div>
           )}
 
-          {isAdmin && showCreatePanel && (
+          {dashboardMode === DASHBOARD_MODES.plan ? (
+            <div className="absolute left-4 top-4 z-[1000] w-[min(28rem,calc(100%-2rem))] space-y-3 rounded-3xl border border-sky-400/20 bg-slate-950/90 p-4 shadow-2xl backdrop-blur-md">
+              <div>
+                <div className="text-xs uppercase tracking-[0.24em] text-sky-300/80">Plan Ride</div>
+                <h3 className="mt-1 text-lg font-semibold text-white">Build a hazard-aware cycling route</h3>
+              </div>
+              <form className="space-y-3" onSubmit={handlePlanSubmit}>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-300">Start Location</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={planStartInput}
+                      onChange={(event) => {
+                        setPlanStartInput(event.target.value)
+                        setPlanStartLocation(null)
+                      }}
+                      placeholder="Enter start address"
+                      className="flex-1 rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePlanUseGps}
+                      className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-200 hover:bg-sky-500/20"
+                    >
+                      📍 Use GPS
+                    </button>
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPlanPickMode((current) => (current === 'start' ? '' : 'start'))}
+                      className={`rounded-xl px-3 py-2 text-xs font-medium transition ${planPickMode === 'start' ? 'bg-emerald-500 text-slate-950' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}
+                    >
+                      {planPickMode === 'start' ? 'Click map to set start' : 'Pick start on map'}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-300">Destination</label>
+                  <input
+                    type="text"
+                    value={planDestinationInput}
+                      onChange={(event) => {
+                        setPlanDestinationInput(event.target.value)
+                        setPlanDestinationLocation(null)
+                      }}
+                    placeholder="Enter destination address"
+                    className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
+                  />
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPlanPickMode((current) => (current === 'destination' ? '' : 'destination'))}
+                      className={`rounded-xl px-3 py-2 text-xs font-medium transition ${planPickMode === 'destination' ? 'bg-emerald-500 text-slate-950' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}
+                    >
+                      {planPickMode === 'destination' ? 'Click map to set destination' : 'Pick destination on map'}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={planLoading}
+                  className="w-full rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {planLoading ? 'Planning ride...' : 'Plan Ride'}
+                </button>
+              </form>
+
+              {planError ? (
+                <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{planError}</div>
+              ) : null}
+
+              {plannedRoute ? (
+                <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Trip Summary</div>
+                    <div className="mt-1 text-sm text-white">
+                      {plannedRoute.distanceKm.toFixed(2)} km · {Math.max(1, Math.round(plannedRoute.durationMin))} min
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="rounded-full bg-sky-500/15 px-3 py-1 text-sky-200">Start: {plannedRoute.startPoint.label}</span>
+                    <span className="rounded-full bg-sky-500/15 px-3 py-1 text-sky-200">Destination: {plannedRoute.endPoint.label}</span>
+                    <span className={`rounded-full px-3 py-1 ${plannedRoute.hazards.length ? 'bg-amber-500/15 text-amber-200' : 'bg-emerald-500/15 text-emerald-200'}`}>
+                      {plannedRoute.hazards.length ? `${plannedRoute.hazards.length} hazard(s) detected` : 'Route cleared of detected hazards'}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
+              {plannedRoute?.hazards?.length ? (
+                <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3">
+                  <div className="text-sm font-semibold text-red-100">Warning: hazards intersect this route</div>
+                  <ul className="mt-2 space-y-1 text-sm text-red-200">
+                    {plannedRoute.hazards.slice(0, 6).map((hazard) => (
+                      <li key={hazard.key}>• {hazard.title} ({hazard.type}, {hazard.severity})</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {dashboardMode === DASHBOARD_MODES.explore && isAdmin && showCreatePanel && (
             <div className="absolute top-14 left-16 z-[1000] pointer-events-auto w-96 bg-[#1c2333] border border-[rgba(100,200,255,0.2)] rounded-xl shadow-2xl p-5 backdrop-blur-sm">
               <h3 className="text-lg font-bold text-white mb-4">{editingRouteId ? 'Edit Route' : 'Create New Route'}</h3>
               <div className="space-y-3">
@@ -711,7 +1245,7 @@ export default function MapDashboard() {
             </div>
           )}
 
-          {selectedRoute && (
+          {dashboardMode === DASHBOARD_MODES.explore && selectedRoute && (
             <div className="absolute top-16 right-4 z-[1000] w-80 bg-[#1c2333] border border-[rgba(255,255,255,0.1)] rounded-xl shadow-2xl overflow-hidden flex flex-col pointer-events-auto max-w-[calc(100%-2rem)]">
               <div className="bg-[#232d42] p-4 flex justify-between items-start border-b border-[rgba(255,255,255,0.06)]">
                 <div>
@@ -774,7 +1308,7 @@ export default function MapDashboard() {
           )}
 
           {actionMessage.visible && (
-            <div className={`absolute bottom-4 right-4 z-[1000] px-4 py-3 rounded-lg shadow-lg pointer-events-none ${
+            <div className={`absolute bottom-28 right-4 z-[1000] px-4 py-3 rounded-lg shadow-lg pointer-events-none ${
               actionMessage.type === 'success'
                 ? 'bg-green-600/20 text-green-400 border border-green-500/30'
                 : 'bg-red-600/20 text-red-400 border border-red-500/30'
@@ -783,7 +1317,7 @@ export default function MapDashboard() {
             </div>
           )}
 
-          {createdRouteDetails && (
+          {dashboardMode === DASHBOARD_MODES.explore && createdRouteDetails && (
             <div className="absolute top-16 right-4 z-[1000] w-[30rem] max-w-[calc(100%-2rem)] bg-[#1c2333] border border-[rgba(255,255,255,0.12)] rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
               <div className="bg-[#232d42] px-4 py-3 border-b border-[rgba(255,255,255,0.08)] flex items-center justify-between gap-3">
                 <div>
@@ -817,8 +1351,8 @@ export default function MapDashboard() {
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap' />
               
               {/* This smoothly pans the map if mapCenter changes! */}
-              <MapUpdater center={mapCenter} bounds={routeBounds} />
-              <MapLocationPicker mode={locationPickMode} onPick={handlePickRoutePoint} />
+              <MapUpdater center={mapCenter} bounds={activeMapBounds} />
+              <MapInteractionLayer onMapClick={handlePlanMapClick} />
 
               {/* Draw User Location Marker if they clicked Near Me */}
               {userLoc && (
@@ -827,46 +1361,265 @@ export default function MapDashboard() {
                 </Marker>
               )}
 
-              {showCreatePanel && newRouteForm.startLat && newRouteForm.startLng && (
+              {dashboardMode === DASHBOARD_MODES.explore && showCreatePanel && newRouteForm.startLat && newRouteForm.startLng && (
                 <Marker position={[Number(newRouteForm.startLat), Number(newRouteForm.startLng)]}>
                   <Popup><strong>Start point</strong></Popup>
                 </Marker>
               )}
 
-              {showCreatePanel && newRouteForm.endLat && newRouteForm.endLng && (
+              {dashboardMode === DASHBOARD_MODES.explore && showCreatePanel && newRouteForm.endLat && newRouteForm.endLng && (
                 <Marker position={[Number(newRouteForm.endLat), Number(newRouteForm.endLng)]}>
                   <Popup><strong>End point</strong></Popup>
                 </Marker>
               )}
-              
-              {/* Draw Filtered Routes */}
-              {filteredRoutes.map((route, index) => {
-                const safePositions = normalizePathCoordinates(route.pathCoordinates)
 
-                if (safePositions.length === 0) return null;
+              {filteredMapHazards.map(({ hazard, coordinates: hazardCoordinates }, index) => {
 
-                const routeId = route._id || route.id
-                const selectedRouteId = selectedRoute?._id || selectedRoute?.id
-                const isSelected = selectedRouteId && routeId === selectedRouteId
+                const severity = normalizeHazardSeverity(hazard?.severity)
+                const hazardTypeKey = normalizeHazardType(hazard?.type)
+                const markerIcon = getHazardMarkerIcon(severity, hazardTypeKey)
+                const hazardType = formatHazardLabel(hazard?.type, 'Other')
+                const hazardSeverity = formatHazardLabel(hazard?.severity, 'Medium')
+                const hazardStatus = normalizeHazardStatus(hazard?.status)
+                const currentStatus = formatHazardLabel(hazard?.status, 'Reported')
+                const latestUpdate = getLatestHazardUpdate(hazard)
+                const latestComment = String(latestUpdate?.comment || '').trim()
+                const latestImageUrl = String(latestUpdate?.imageUrl || hazard?.imageUrl || '').trim()
+                const latestUpdatedAt = latestUpdate?.createdAt || hazard?.updatedAt || hazard?.createdAt
+                const uploadTime = formatHazardUploadTime(latestUpdatedAt)
+                const hazardId = hazard?._id || hazard?.id
 
                 return (
-                  <Polyline
-                    key={routeId || `${route.title || 'route'}-${index}`}
-                    positions={safePositions}
-                    color={isSelected ? '#34d399' : '#10b981'}
-                    weight={isSelected ? 8 : 5}
+                  <Marker
+                    key={hazardId || `hazard-${index}`}
+                    position={[hazardCoordinates.lat, hazardCoordinates.lng]}
+                    icon={markerIcon}
                     eventHandlers={{
-                      click: () => {
-                        setSelectedRoute(route)
-                      },
+                      mouseover: (event) => event.target.openPopup(),
+                      mouseout: (event) => event.target.closePopup(),
                     }}
-                  />
-                );
+                  >
+                    <Popup closeButton={false} autoPan={false} className="hazard-hover-popup">
+                      <div className="card card-col map-hazard-popup-card">
+                        <div className="card-body card-body-grow">
+                          <div className="card-title-row">
+                            <h3 className="card-title">{hazard?.title || 'Hazard report'}</h3>
+                          </div>
+                          <div className="map-hazard-popup-tags">
+                            <span className={`badge badge-${severity}`}>{hazardSeverity}</span>
+                            <span className={`badge map-hazard-status-badge map-hazard-status-${hazardStatus}`}>{currentStatus}</span>
+                          </div>
+                          <div className="card-meta">
+                            <span className="meta-row"><strong>Type:</strong> {hazardType}</span>
+                            <span className="meta-row"><strong>Updated:</strong> {uploadTime}</span>
+                            {latestComment ? (
+                              <span className="meta-row map-hazard-popup-comment"><strong>Details:</strong> {latestComment}</span>
+                            ) : null}
+                          </div>
+                        </div>
+                        {latestImageUrl ? (
+                          <div className="hazard-card-image-wrap">
+                            <img
+                              className="hazard-card-image"
+                              src={latestImageUrl}
+                              alt={hazard?.title || 'Hazard image'}
+                              loading="lazy"
+                            />
+                          </div>
+                        ) : (
+                          <p className="hazard-popup-no-image">No current image uploaded</p>
+                        )}
+                      </div>
+                    </Popup>
+                  </Marker>
+                )
               })}
+              
+              {dashboardMode === DASHBOARD_MODES.explore ? (
+                filteredRoutes.map((route, index) => {
+                  const safePositions = normalizePathCoordinates(route.pathCoordinates)
+
+                  if (safePositions.length === 0) return null;
+
+                  const routeId = route._id || route.id
+                  const selectedRouteId = selectedRoute?._id || selectedRoute?.id
+                  const isSelected = selectedRouteId && routeId === selectedRouteId
+
+                  return (
+                    <Polyline
+                      key={routeId || `${route.title || 'route'}-${index}`}
+                      positions={safePositions}
+                      color={isSelected ? '#34d399' : '#10b981'}
+                      weight={isSelected ? 8 : 5}
+                      eventHandlers={{
+                        click: () => {
+                          setSelectedRoute(route)
+                        },
+                      }}
+                    />
+                  )
+                })
+              ) : null}
+
+              {dashboardMode === DASHBOARD_MODES.plan && plannedRoute?.coordinates?.length ? (
+                <Polyline
+                  positions={plannedRoute.coordinates.map(([lng, lat]) => [lat, lng])}
+                  color={plannedRoute.hazards.length ? '#f59e0b' : '#3b82f6'}
+                  weight={7}
+                />
+              ) : null}
+
+              {dashboardMode === DASHBOARD_MODES.plan && planStartLocation ? (
+                <Marker position={[planStartLocation.lat, planStartLocation.lng]}>
+                  <Popup><strong>Start location</strong><br />{planStartLocation.label}</Popup>
+                </Marker>
+              ) : null}
+
+              {dashboardMode === DASHBOARD_MODES.plan && planDestinationLocation ? (
+                <Marker position={[planDestinationLocation.lat, planDestinationLocation.lng]}>
+                  <Popup><strong>Destination</strong><br />{planDestinationLocation.label}</Popup>
+                </Marker>
+              ) : null}
             </MapContainer>
           )}
         </div>
       </div>
     </div>
   )
+}
+
+function getHazardCoordinates(hazard) {
+  const coordinates = Array.isArray(hazard?.location?.coordinates) ? hazard.location.coordinates : []
+
+  const rawLng = coordinates[0]
+    ?? hazard?.location?.longitude
+    ?? hazard?.location?.lng
+    ?? hazard?.longitude
+    ?? hazard?.lng
+  const rawLat = coordinates[1]
+    ?? hazard?.location?.latitude
+    ?? hazard?.location?.lat
+    ?? hazard?.latitude
+    ?? hazard?.lat
+
+  const lng = Number(rawLng)
+  const lat = Number(rawLat)
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null
+  }
+
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return null
+  }
+
+  return { lat, lng }
+}
+
+function normalizeHazardSeverity(severity) {
+  const value = String(severity || 'medium').toLowerCase()
+  if (value === 'high') return 'high'
+  if (value === 'low') return 'low'
+  return 'medium'
+}
+
+function normalizeHazardType(type) {
+  const value = String(type || 'other').toLowerCase()
+  if (HAZARD_TYPE_SET.has(value)) {
+    return value
+  }
+  return 'other'
+}
+
+function normalizeHazardStatus(status) {
+  const value = String(status || 'reported').toLowerCase().trim()
+
+  if (value === 'pending' || value === 'resolved' || value === 'reported') {
+    return value
+  }
+
+  return 'reported'
+}
+
+function getLatestHazardUpdate(hazard) {
+  const updates = Array.isArray(hazard?.statusUpdates) ? hazard.statusUpdates : []
+  if (updates.length === 0) return null
+
+  return updates
+    .slice()
+    .sort((left, right) => new Date(right?.createdAt || 0).getTime() - new Date(left?.createdAt || 0).getTime())[0]
+}
+
+function getNextHazardSeverity(current) {
+  const severityCycle = ['all', 'high', 'medium', 'low']
+  const currentIndex = severityCycle.indexOf(String(current || 'all').toLowerCase())
+
+  if (currentIndex === -1 || currentIndex === severityCycle.length - 1) {
+    return severityCycle[0]
+  }
+
+  return severityCycle[currentIndex + 1]
+}
+
+function getHazardTypeIconComponent(type) {
+  return HAZARD_TYPE_ICON_COMPONENTS[type] || AlertTriangle
+}
+
+function getHazardTypeIconInnerMarkup(type, color) {
+  const HazardTypeIcon = getHazardTypeIconComponent(type)
+  const iconMarkup = renderToStaticMarkup(
+    <HazardTypeIcon size={9} strokeWidth={2.3} color={color} />,
+  )
+
+  return iconMarkup
+    .replace(/^<svg[^>]*>/, '')
+    .replace(/<\/svg>$/, '')
+    .replace(/currentColor/g, color)
+}
+
+function getHazardPinColor(severity) {
+  if (severity === 'high') return '#ef4444'
+  if (severity === 'low') return '#facc15'
+  return '#f97316'
+}
+
+function formatHazardLabel(value, fallback) {
+  const normalized = String(value || fallback)
+    .replace(/[_-]+/g, ' ')
+    .trim()
+
+  if (!normalized) return fallback
+
+  return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function formatHazardUploadTime(value) {
+  if (!value) return 'Unknown time'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Unknown time'
+
+  return date.toLocaleString()
+}
+
+function createHazardPinIcon(severity, type) {
+  const pinColor = getHazardPinColor(severity)
+  const normalizedType = normalizeHazardType(type)
+  const iconInnerMarkup = getHazardTypeIconInnerMarkup(normalizedType, pinColor)
+  const svgMarkup = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="30" viewBox="0 0 22 30" fill="none">
+      <path d="M11 29C11 29 20 19.6 20 11C20 6.03 15.97 2 11 2C6.03 2 2 6.03 2 11C2 19.6 11 29 11 29Z" fill="${pinColor}" stroke="white" stroke-width="2"/>
+      <circle cx="11" cy="11" r="4.2" fill="white"/>
+      <g transform="translate(6.6 6.6) scale(0.37)">${iconInnerMarkup}</g>
+    </svg>
+  `.trim()
+
+  const iconUrl = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgMarkup)}`
+
+  return L.icon({
+    iconUrl,
+    iconSize: [22, 30],
+    iconAnchor: [11, 30],
+    popupAnchor: [0, -28],
+  })
 }
