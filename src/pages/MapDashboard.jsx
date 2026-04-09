@@ -440,6 +440,19 @@ export default function MapDashboard() {
           new Date(right?.createdAt || 0).getTime() - new Date(left?.createdAt || 0).getTime()
         ))
 
+        if (!isMounted) {
+          return
+        }
+
+        setAllHazards(sortedHazards)
+      } catch (hazardError) {
+        console.error('Failed to fetch hazards for map markers:', hazardError)
+
+        if (!isMounted) {
+          return
+        }
+
+        setAllHazards([])
       }
     }
 
