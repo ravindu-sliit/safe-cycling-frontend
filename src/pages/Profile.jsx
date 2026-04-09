@@ -88,6 +88,12 @@ const buildStoredUserSnapshot = (user = {}) => {
   }
 }
 
+const resolveProfileImageUrl = (profile = {}, fallbackUser = {}) => (
+  Object.prototype.hasOwnProperty.call(profile, 'profileImageUrl')
+    ? (profile.profileImageUrl ?? '')
+    : (fallbackUser.profileImageUrl || '')
+)
+
 const buildProfileState = (profile = {}, fallbackUser = {}) => {
   const id = profile._id || profile.id || fallbackUser._id || fallbackUser.id || ''
   const role = normalizeRoleValue(profile.role || fallbackUser.role || 'user')
@@ -98,7 +104,7 @@ const buildProfileState = (profile = {}, fallbackUser = {}) => {
     name: profile.name || fallbackUser.name || '',
     email: profile.email || fallbackUser.email || '',
     cyclingStyle: supportsCyclingStyle(role) ? (profile.cyclingStyle || fallbackUser.cyclingStyle || 'commuter') : '',
-    profileImageUrl: profile.profileImageUrl || fallbackUser.profileImageUrl || '',
+    profileImageUrl: resolveProfileImageUrl(profile, fallbackUser),
     role,
     isVerified: Boolean(profile.isVerified ?? fallbackUser.isVerified),
     twoFactorEnabled: Boolean(profile.twoFactorEnabled ?? fallbackUser.twoFactorEnabled),
@@ -167,7 +173,6 @@ const profileSectionItems = [
   { id: 'preferences', label: 'Preferences' },
   { id: 'two-factor', label: '2-Step Verification' },
   { id: 'security', label: 'Security' },
-  { id: 'photo', label: 'Profile Photo' },
   { id: 'danger', label: 'Danger Zone' },
 ]
 
@@ -548,17 +553,33 @@ export default function Profile() {
   const handleRemoveProfileImage = async () => {
     if (!profileDetails.id || !profileDetails.profileImageUrl) return
 
+    const previousProfile = profileDetails
+    const optimisticProfile = {
+      ...previousProfile,
+      profileImageUrl: '',
+    }
+
     setError('')
     setSuccessMessage('')
+    setProfileDetails(optimisticProfile)
+    syncStoredUser(optimisticProfile)
     setIsRemovingImage(true)
 
     try {
       const { data } = await api.delete(`/users/${profileDetails.id}/profile-image`)
-      const profile = buildProfileState(extractProfilePayload(data), profileDetails)
+      const profile = buildProfileState(
+        {
+          ...extractProfilePayload(data),
+          profileImageUrl: '',
+        },
+        previousProfile,
+      )
       setProfileDetails(profile)
       syncStoredUser(profile)
       setSuccessMessage(data.message || 'Profile image removed successfully.')
     } catch (requestError) {
+      setProfileDetails(previousProfile)
+      syncStoredUser(previousProfile)
       setError(requestError.response?.data?.message || 'Unable to remove your profile image.')
     } finally {
       setIsRemovingImage(false)
@@ -609,6 +630,7 @@ export default function Profile() {
   const fullName = profileDetails.name || currentUserSnapshot.name || 'Cyclist'
   const initials = getInitials(fullName) || 'SC'
   const hasProfileImage = Boolean(profileDetails.profileImageUrl)
+  const isProfileImageActionDisabled = !profileDetails.id || isUploadingImage || isRemovingImage
   const hasPendingTwoFactorAction = Boolean(twoFactorForm.pendingAction)
   const isEnablingTwoFactor = twoFactorForm.pendingAction === 'enable'
 
@@ -651,13 +673,34 @@ export default function Profile() {
                   )}
                 </div>
 
-                <label className={`pro-avatar-upload-overlay${isUploadingImage || isRemovingImage ? ' pro-avatar-upload-overlay--busy' : ''}`}>
-                  Change
+                {hasProfileImage ? (
+                  <button
+                    type="button"
+                    className={`pro-avatar-remove-overlay${isUploadingImage || isRemovingImage ? ' pro-avatar-remove-overlay--busy' : ''}`}
+                    onClick={handleRemoveProfileImage}
+                    disabled={isRemovingImage || isUploadingImage}
+                    aria-label="Remove profile photo"
+                    title="Remove profile photo"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4h8v2" />
+                      <path d="M19 6l-1 14H6L5 6" />
+                      <path d="M10 11v6" />
+                      <path d="M14 11v6" />
+                    </svg>
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="pro-avatar-actions">
+                <label className={`pro-btn pro-btn--primary${isProfileImageActionDisabled ? ' pro-btn--disabled' : ''}`}>
+                  <span>{isUploadingImage ? 'Uploading...' : hasProfileImage ? 'Change Photo' : 'Upload Photo'}</span>
                   <input
                     type="file"
                     accept="image/*"
                     onChange={handleProfileImageChange}
-                    disabled={!profileDetails.id || isUploadingImage || isRemovingImage}
+                    disabled={isProfileImageActionDisabled}
                     hidden
                   />
                 </label>
@@ -711,12 +754,6 @@ export default function Profile() {
                   <div className="pro-quick-info-content">
                     <span className="pro-quick-info-label">Last updated</span>
                     <span className="pro-quick-info-value">{formatDate(profileDetails.updatedAt)}</span>
-                  </div>
-                </div>
-                <div className="pro-quick-info-row">
-                  <div className="pro-quick-info-content">
-                    <span className="pro-quick-info-label">Role</span>
-                    <span className="pro-quick-info-value">{profileDetails.role}</span>
                   </div>
                 </div>
               </div>
@@ -1158,63 +1195,6 @@ export default function Profile() {
                     </button>
                   </div>
                 </form>
-              </div>
-            </div>
-
-            <div
-              id="profile-section-photo"
-              ref={registerSection('photo')}
-              data-section-id="photo"
-              className="pro-panel pro-panel--section"
-            >
-              <div className="pro-panel-header">
-                <div>
-                  <h2 className="pro-panel-title">Profile Photo</h2>
-                  <p className="pro-panel-subtitle">The image upload flow still uses the current user ID for file endpoints.</p>
-                </div>
-              </div>
-
-              <div className="pro-panel-body">
-                <div className="pro-photo-section">
-                  <div className="pro-photo-preview">
-                    <div className="pro-photo-frame">
-                      {hasProfileImage ? (
-                        <img
-                          className="pro-photo-img"
-                          src={profileDetails.profileImageUrl}
-                          alt={`${fullName} profile`}
-                          onError={handleProfileImageLoadError}
-                        />
-                      ) : (
-                        <div className="pro-photo-placeholder">{initials}</div>
-                      )}
-                    </div>
-
-                    <div className="pro-photo-info">
-                      <strong>{hasProfileImage ? 'Your profile photo is live' : 'Add a profile photo'}</strong>
-                      <p>Upload a JPG, PNG, GIF, or WEBP image up to 5 MB.</p>
-                    </div>
-                  </div>
-
-                  <div className="pro-photo-actions">
-                    <label className={`pro-btn pro-btn--primary${!profileDetails.id || isUploadingImage || isRemovingImage ? ' pro-btn--disabled' : ''}`}>
-                      <span>{isUploadingImage ? 'Uploading...' : hasProfileImage ? 'Change Photo' : 'Upload Photo'}</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleProfileImageChange}
-                        disabled={!profileDetails.id || isUploadingImage || isRemovingImage}
-                        hidden
-                      />
-                    </label>
-
-                    {hasProfileImage ? (
-                      <button type="button" className="pro-btn pro-btn--ghost pro-btn--danger-ghost" onClick={handleRemoveProfileImage} disabled={isRemovingImage || isUploadingImage}>
-                        {isRemovingImage ? 'Removing...' : 'Remove'}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
               </div>
             </div>
 
