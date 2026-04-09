@@ -331,6 +331,11 @@ export default function MapDashboard() {
     }
 
     fetchHazards()
+    const intervalId = window.setInterval(fetchHazards, 15000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
   }, [])
 
   const requestUserLocation = (onSuccess) => {
@@ -1004,9 +1009,14 @@ export default function MapDashboard() {
                 const markerIcon = getHazardMarkerIcon(severity, hazardTypeKey)
                 const hazardType = formatHazardLabel(hazard?.type, 'Other')
                 const hazardSeverity = formatHazardLabel(hazard?.severity, 'Medium')
-                const hazardStatus = normalizeHazardStatus(hazard?.status)
-                const currentStatus = formatHazardLabel(hazard?.status, 'Reported')
-                const uploadTime = formatHazardUploadTime(hazard?.createdAt)
+                const latestUpdate = getLatestHazardUpdate(hazard)
+                const latestStatus = latestUpdate?.status || hazard?.status
+                const latestImage = latestUpdate?.imageUrl || hazard?.imageUrl
+                const latestComment = latestUpdate?.comment || ''
+                const updateTime = latestUpdate?.createdAt || hazard?.updatedAt || hazard?.createdAt
+                const hazardStatus = normalizeHazardStatus(latestStatus)
+                const currentStatus = formatHazardLabel(latestStatus, 'Reported')
+                const uploadTime = formatHazardUploadTime(updateTime)
                 const hazardId = hazard?._id || hazard?.id
 
                 return (
@@ -1031,14 +1041,17 @@ export default function MapDashboard() {
                           </div>
                           <div className="card-meta">
                             <span className="meta-row"><strong>Type:</strong> {hazardType}</span>
-                            <span className="meta-row"><strong>Upload time:</strong> {uploadTime}</span>
+                            <span className="meta-row"><strong>Updated:</strong> {uploadTime}</span>
                           </div>
+                          {latestComment ? (
+                            <p className="hazard-popup-comment">{latestComment}</p>
+                          ) : null}
                         </div>
-                        {hazard?.imageUrl ? (
+                        {latestImage ? (
                           <div className="hazard-card-image-wrap">
                             <img
                               className="hazard-card-image"
-                              src={hazard.imageUrl}
+                              src={latestImage}
                               alt={hazard?.title || 'Hazard image'}
                               loading="lazy"
                             />
@@ -1178,6 +1191,15 @@ function formatHazardLabel(value, fallback) {
   if (!normalized) return fallback
 
   return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function getLatestHazardUpdate(hazard) {
+  const updates = Array.isArray(hazard?.statusUpdates) ? hazard.statusUpdates : []
+  if (updates.length === 0) return null
+
+  return updates
+    .slice()
+    .sort((left, right) => new Date(right?.createdAt || 0).getTime() - new Date(left?.createdAt || 0).getTime())[0] || null
 }
 
 function formatHazardUploadTime(value) {
