@@ -1899,6 +1899,33 @@ label {
   padding: 14px 14px 10px;
 }
 
+.map-hazard-popup-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.map-hazard-status-badge {
+  border: 1px solid rgba(147, 197, 253, 0.3);
+}
+
+.map-hazard-status-reported {
+  background: rgba(59, 130, 246, 0.2);
+  color: #bfdbfe;
+}
+
+.map-hazard-status-pending {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fde68a;
+}
+
+.map-hazard-status-resolved {
+  background: rgba(34, 197, 94, 0.2);
+  color: #bbf7d0;
+}
+
 .map-hazard-popup-card .hazard-card-image-wrap {
   margin: 0 14px 14px;
 }
@@ -2838,6 +2865,28 @@ label {
   gap: 10px;
 }
 
+.admin-sidebar-active-panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-sidebar-active-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.admin-sidebar-active-value {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 800;
+}
+
 .admin-sidebar-link {
   width: 100%;
   display: flex;
@@ -2862,6 +2911,7 @@ label {
   border-color: rgba(52, 211, 153, 0.22);
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(59, 130, 246, 0.12));
   box-shadow: 0 14px 28px rgba(16, 185, 129, 0.12);
+  transform: translateX(2px);
 }
 
 .admin-sidebar-link-icon {
@@ -3331,6 +3381,103 @@ label {
 .admin-editor-textarea {
   resize: vertical;
   min-height: 110px;
+}
+
+.admin-hazard-editor-form .admin-filter-select {
+  background: linear-gradient(180deg, rgba(18, 34, 51, 0.98), rgba(11, 24, 38, 0.98));
+  border-color: rgba(56, 189, 248, 0.34);
+}
+
+.admin-hazard-editor-form .admin-filter-select:focus {
+  border-color: rgba(56, 189, 248, 0.58);
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.16);
+}
+
+.admin-hazard-editor-form .admin-filter-select option {
+  background: #11253a;
+  color: #e2e8f0;
+}
+
+.admin-editor-file-input {
+  padding-block: 9px;
+}
+
+.admin-editor-upload-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-editor-upload-text {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.admin-editor-upload-link {
+  color: var(--accent-cyan);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.admin-editor-upload-link:hover {
+  text-decoration: underline;
+}
+
+.admin-hazard-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(3, 7, 18, 0.76);
+  backdrop-filter: blur(3px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+}
+
+.admin-hazard-modal {
+  width: min(980px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border-radius: 24px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: linear-gradient(180deg, rgba(18, 27, 41, 0.98), rgba(10, 16, 28, 0.99));
+  box-shadow: 0 28px 56px rgba(2, 6, 23, 0.56);
+  padding: 20px;
+}
+
+.admin-hazard-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.admin-hazard-modal-close {
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  background: rgba(30, 41, 59, 0.68);
+  color: #e2e8f0;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  transition: all var(--tx);
+}
+
+.admin-hazard-modal-close:hover:enabled {
+  border-color: rgba(96, 165, 250, 0.48);
+  background: rgba(30, 64, 175, 0.3);
+}
+
+.admin-hazard-modal-close:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .admin-table-toolbar {
@@ -3835,6 +3982,19 @@ label {
 
   .admin-editor-form {
     grid-template-columns: 1fr;
+  }
+
+  .admin-hazard-modal-backdrop {
+    padding: 14px;
+  }
+
+  .admin-hazard-modal {
+    max-height: calc(100vh - 28px);
+    padding: 16px;
+  }
+
+  .admin-hazard-modal-header {
+    align-items: center;
   }
 
   .admin-editor-actions {
