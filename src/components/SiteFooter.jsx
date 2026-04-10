@@ -16,6 +16,7 @@ function IconBike() {
 export default function SiteFooter() {
   const { isAuthenticated, user } = useAuth()
   const dashboardPath = user?.role === 'admin' ? '/admin/dashboard' : '/dashboard'
+  const profilePath = user?.role === 'admin' ? '/admin/profile' : '/profile'
   const year = new Date().getFullYear()
 
   const primaryLinks = isAuthenticated
@@ -23,7 +24,7 @@ export default function SiteFooter() {
         { to: dashboardPath, label: 'Dashboard' },
         { to: '/hazards', label: 'Hazards' },
         { to: '/reviews', label: 'Reviews' },
-        { to: '/profile', label: 'Profile' },
+        { to: profilePath, label: 'Profile' },
       ]
     : [
         { to: '/login', label: 'Login' },

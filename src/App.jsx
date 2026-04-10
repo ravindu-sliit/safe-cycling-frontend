@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import Login from './pages/Login.jsx'
 import Register from './pages/Register.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
 import ResetPassword from './pages/ResetPassword.jsx'
 import VerifyEmail from './pages/VerifyEmail.jsx'
 import Profile from './pages/Profile.jsx'
+import AdminProfile from './pages/AdminProfile.jsx'
 import AdminDashboard from './pages/AdminDashboard.jsx'
 import MapDashboard from './pages/MapDashboard.jsx'
 import Hazards from './pages/Hazards.jsx'
@@ -92,6 +93,7 @@ function IconClose() {
 
 function Navbar() {
   const { pathname } = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { isAuthenticated, user } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -100,12 +102,24 @@ function Navbar() {
   }
 
   const dashboardPath = user?.role === 'admin' ? '/admin/dashboard' : '/dashboard'
+  const isMapPage = pathname === '/dashboard' || pathname === '/admin/map'
+  const mapMode = searchParams.get('mode') === 'plan' ? 'plan' : 'explore'
+
+  const handleMapModeChange = (mode) => {
+    if (!isMapPage) return
+
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.set('mode', mode)
+    setSearchParams(nextParams, { replace: true })
+  }
+
+  const accountPath = user?.role === 'admin' ? '/admin/profile' : '/profile'
   const navItems = [
     { to: dashboardPath, label: 'Dashboard', Icon: IconMap },
     ...(user?.role === 'admin' ? [{ to: '/admin/map', label: 'Map', Icon: IconMap }] : []),
     { to: '/hazards', label: 'Hazards', Icon: IconAlert },
     { to: '/reviews', label: 'Reviews', Icon: IconStar },
-    { to: '/profile', label: 'Account', Icon: IconUser },
+    { to: accountPath, label: 'Account', Icon: IconUser },
   ]
 
   return (
@@ -135,6 +149,24 @@ function Navbar() {
           </nav>
 
           <div className="topnav-actions">
+            {isMapPage ? (
+              <div className="inline-flex items-center rounded-lg border border-white/15 bg-slate-900/70 p-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => handleMapModeChange('explore')}
+                  className={`rounded-md px-2.5 py-1.5 font-medium transition ${mapMode === 'explore' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300 hover:bg-white/10'}`}
+                >
+                  Explore
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMapModeChange('plan')}
+                  className={`rounded-md px-2.5 py-1.5 font-medium transition ${mapMode === 'plan' ? 'bg-sky-500 text-slate-950' : 'text-slate-300 hover:bg-white/10'}`}
+                >
+                  Plan
+                </button>
+              </div>
+            ) : null}
             <button className="topnav-icon-btn" aria-label="Notifications">
               <span className="notif-dot" />
               <IconBell />
@@ -179,7 +211,10 @@ function App() {
     location.pathname === '/forgot-password' ||
     location.pathname.startsWith('/reset-password/') ||
     location.pathname.startsWith('/verify-email/')
-  const hideNavbar = isAuthPage || location.pathname === '/admin/dashboard'
+  const hideNavbar =
+    isAuthPage ||
+    location.pathname === '/admin/dashboard' ||
+    location.pathname === '/admin/profile'
 
   return (
     <div className="app-shell">
@@ -205,6 +240,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole="admin">
                 <MapDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/profile"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <AdminProfile />
               </ProtectedRoute>
             }
           />
@@ -235,9 +278,13 @@ function App() {
           <Route
             path="/profile"
             element={
-              <ProtectedRoute>
-                <Profile />
-              </ProtectedRoute>
+              user?.role === 'admin' ? (
+                <Navigate to="/admin/profile" replace />
+              ) : (
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              )
             }
           />
           <Route path="*" element={<Navigate to={isAuthenticated ? dashboardPath : '/login'} replace />} />

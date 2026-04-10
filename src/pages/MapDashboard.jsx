@@ -1,10 +1,39 @@
-
+import { useEffect, useEffectEvent, useMemo, useState } from 'react'
+import { MapContainer, TileLayer, Polyline, Popup, Marker, useMap, useMapEvents } from 'react-leaflet'
+import { useLocation, useSearchParams } from 'react-router-dom'
+import L from 'leaflet'
+import { renderToStaticMarkup } from 'react-dom/server'
+import {
+  AlertTriangle,
+  Ban,
+  Bird,
+  Car,
+  CircleOff,
+  CircleSlash,
+  CloudFog,
+  CloudRain,
+  Construction,
+  Droplets,
+  Route,
+  ShieldAlert,
+  Snowflake,
+  TrafficCone,
+  TreePine,
+  Waves,
+  Wrench,
+  Zap,
+} from 'lucide-react'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { HAZARD_TYPE_VALUES } from '../constants/hazardTypes'
 import 'leaflet/dist/leaflet.css'
 
 const HAZARD_NEAR_ME_RADIUS_KM = 10
+const HAZARD_INTERSECTION_RADIUS_KM = 0.05
+const DASHBOARD_MODES = {
+  explore: 'explore',
+  plan: 'plan',
+}
 const HAZARD_TYPE_SET = new Set(HAZARD_TYPE_VALUES)
 const HAZARD_MARKER_ICON_VERSION = 'v2'
 const HAZARD_TYPE_ICON_COMPONENTS = {
@@ -113,17 +142,89 @@ function MapUpdater({ center, bounds }) {
   return null;
 }
 
-function MapLocationPicker({ mode, onPick }) {
+function MapInteractionLayer({ onMapClick }) {
   useMapEvents({
     click(event) {
-      if (!mode) return
+      if (typeof onMapClick !== 'function') return
 
       const { lat, lng } = event.latlng
-      onPick(mode, lat, lng)
+      onMapClick(lat, lng)
     },
   })
 
   return null
+}
+
+async function geocodeAddress(query) {
+  const trimmedQuery = String(query || '').trim()
+
+  if (!trimmedQuery) {
+    throw new Error('Please enter a location')
+  }
+
+  const endpoint = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(trimmedQuery)}`
+  const response = await fetch(endpoint)
+
+  if (!response.ok) {
+    throw new Error('Failed to geocode location')
+  }
+
+  const results = await response.json()
+  const match = Array.isArray(results) ? results[0] : null
+
+  if (!match) {
+    throw new Error(`Location not found: ${trimmedQuery}`)
+  }
+
+  return {
+    lat: Number(match.lat),
+    lng: Number(match.lon),
+    label: match.display_name || trimmedQuery,
+  }
+}
+
+async function reverseGeocodeAddress(lat, lng) {
+  const endpoint = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`
+  const response = await fetch(endpoint)
+
+  if (!response.ok) {
+    throw new Error('Failed to reverse geocode location')
+  }
+
+  const payload = await response.json()
+  return payload?.display_name || `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`
+}
+
+async function fetchCyclingRoute(waypointPoints, apiKey) {
+  if (!apiKey) {
+    throw new Error('Missing OpenRouteService API key. Set VITE_OPENROUTESERVICE_API_KEY.')
+  }
+
+  const coordinates = Array.isArray(waypointPoints)
+    ? waypointPoints.map((point) => [point.lng, point.lat])
+    : []
+
+  if (coordinates.length < 2) {
+    throw new Error('At least a start and destination are required')
+  }
+
+  const response = await fetch('https://api.openrouteservice.org/v2/directions/cycling-regular/geojson', {
+    method: 'POST',
+    headers: {
+      Authorization: apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      coordinates,
+    }),
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    throw new Error(payload?.error?.message || 'Failed to fetch cycling route')
+  }
+
+  return response.json()
 }
 
 const extractProfilePayload = (payload) => payload?.data || payload?.user || payload?.profile || payload || {}
@@ -191,8 +292,9 @@ export default function MapDashboard() {
     }
   }, [isAuthenticated, searchParams, setSearchParams, verificationBanner])
 
-  const [routes, setRoutes] = useState([]);
-  const [hazards, setHazards] = useState([])
+  const [dashboardMode, setDashboardMode] = useState(DASHBOARD_MODES.explore)
+  const [routes, setRoutes] = useState([])
+  const [allHazards, setAllHazards] = useState([])
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -204,10 +306,45 @@ export default function MapDashboard() {
   const [showEcoSlider, setShowEcoSlider] = useState(false)
   const [hazardSeverityFilter, setHazardSeverityFilter] = useState('all')
   const [hazardNearMeOnly, setHazardNearMeOnly] = useState(false)
-  const [userLoc, setUserLoc] = useState(null);
-  const [mapCenter, setMapCenter] = useState([6.9271, 79.8612]); // Default Colombo
+  const [userLoc, setUserLoc] = useState(null)
+  const [mapCenter, setMapCenter] = useState([6.9271, 79.8612]) // Default Colombo
   const [selectedRoute, setSelectedRoute] = useState(null)
   const [routeBounds, setRouteBounds] = useState(null)
+  const [showCreatePanel, setShowCreatePanel] = useState(false)
+  const [newRouteForm, setNewRouteForm] = useState({
+    title: '',
+    ecoScore: '',
+    startLng: '',
+    startLat: '',
+    startAddress: '',
+    endLng: '',
+    endLat: '',
+    endAddress: '',
+  })
+  const [actionMessage, setActionMessage] = useState({ type: '', text: '', visible: false })
+  const [createdRouteDetails, setCreatedRouteDetails] = useState(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [locationPickMode, setLocationPickMode] = useState('')
+  const [editingRouteId, setEditingRouteId] = useState('')
+
+  const [planStartInput, setPlanStartInput] = useState('')
+  const [planDestinationInput, setPlanDestinationInput] = useState('')
+  const [planStartLocation, setPlanStartLocation] = useState(null)
+  const [planDestinationLocation, setPlanDestinationLocation] = useState(null)
+  const [planStopInput, setPlanStopInput] = useState('')
+  const [planStops, setPlanStops] = useState([])
+  const [planPickMode, setPlanPickMode] = useState('')
+  const [planLoading, setPlanLoading] = useState(false)
+  const [planError, setPlanError] = useState('')
+  const [plannedRoute, setPlannedRoute] = useState(null)
+  const [plannedRouteBounds, setPlannedRouteBounds] = useState(null)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
+  const [showPlanFormMobile, setShowPlanFormMobile] = useState(true)
+  const [showPlanDetailsMobile, setShowPlanDetailsMobile] = useState(false)
+  const [showPlanFormDesktop, setShowPlanFormDesktop] = useState(true)
+  const [showPlanSummaryDesktop, setShowPlanSummaryDesktop] = useState(false)
+
+  const modeParam = searchParams.get('mode')
 
   const hazardPinIcons = useMemo(() => new Map(), [])
 
@@ -222,13 +359,13 @@ export default function MapDashboard() {
   }
 
   const mapHazards = useMemo(
-    () => hazards
+    () => allHazards
       .map((hazard) => ({
         hazard,
         coordinates: getHazardCoordinates(hazard),
       }))
       .filter((entry) => Boolean(entry.coordinates)),
-    [hazards],
+    [allHazards],
   )
 
   const filteredMapHazards = useMemo(
@@ -253,23 +390,59 @@ export default function MapDashboard() {
     [hazardNearMeOnly, hazardSeverityFilter, mapHazards, userLoc],
   )
 
-  // Admin CRUD State
-  const [showCreatePanel, setShowCreatePanel] = useState(false)
-  const [newRouteForm, setNewRouteForm] = useState({
-    title: '',
-    ecoScore: '',
-    startLng: '',
-    startLat: '',
-    startAddress: '',
-    endLng: '',
-    endLat: '',
-    endAddress: '',
-  })
-  const [actionMessage, setActionMessage] = useState({ type: '', text: '', visible: false })
-  const [createdRouteDetails, setCreatedRouteDetails] = useState(null)
-  const [deleteLoading, setDeleteLoading] = useState(false)
-  const [locationPickMode, setLocationPickMode] = useState('')
-  const [editingRouteId, setEditingRouteId] = useState('')
+  const hazardCoordinateEntries = useMemo(
+    () => allHazards
+      .map((hazard) => ({ hazard, coordinates: getHazardCoordinates(hazard) }))
+      .filter((entry) => Boolean(entry.coordinates)),
+    [allHazards],
+  )
+
+  const activeMapBounds = dashboardMode === DASHBOARD_MODES.plan ? plannedRouteBounds : routeBounds
+
+  useEffect(() => {
+    if (modeParam === DASHBOARD_MODES.plan || modeParam === DASHBOARD_MODES.explore) {
+      setDashboardMode(modeParam)
+      return
+    }
+
+    setDashboardMode(DASHBOARD_MODES.explore)
+  }, [modeParam])
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 767px)')
+
+    const updateViewport = () => {
+      setIsMobileViewport(mediaQuery.matches)
+    }
+
+    updateViewport()
+    mediaQuery.addEventListener('change', updateViewport)
+
+    return () => {
+      mediaQuery.removeEventListener('change', updateViewport)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (dashboardMode === DASHBOARD_MODES.explore) {
+      setPlanPickMode('')
+      setPlannedRoute(null)
+      setPlanError('')
+      setShowPlanFormMobile(true)
+      setShowPlanDetailsMobile(false)
+      setShowPlanFormDesktop(true)
+      setShowPlanSummaryDesktop(false)
+      return
+    }
+
+    setShowPlanFormMobile(true)
+    setShowPlanDetailsMobile(false)
+    setShowPlanFormDesktop(true)
+    setShowPlanSummaryDesktop(false)
+    setSelectedRoute(null)
+    setShowCreatePanel(false)
+    setLocationPickMode('')
+  }, [dashboardMode])
 
   useEffect(() => {
     const fetchRoutes = async () => {
@@ -299,10 +472,10 @@ export default function MapDashboard() {
         const sortedHazards = rows.slice().sort((left, right) => (
           new Date(right?.createdAt || 0).getTime() - new Date(left?.createdAt || 0).getTime()
         ))
-        setHazards(sortedHazards)
+        setAllHazards(sortedHazards)
       } catch (hazardError) {
         console.error('Failed to fetch hazards for map markers:', hazardError)
-        setHazards([])
+        setAllHazards([])
       }
     }
 
@@ -350,6 +523,206 @@ export default function MapDashboard() {
     setHazardSeverityFilter((current) => getNextHazardSeverity(current))
   }
 
+  const clearPlanRoute = () => {
+    setPlannedRoute(null)
+    setPlannedRouteBounds(null)
+    setPlanError('')
+    setShowPlanDetailsMobile(false)
+    setShowPlanSummaryDesktop(false)
+  }
+
+  const requestPlanLocation = async (mode, lat, lng) => {
+    const nextLocation = {
+      lat,
+      lng,
+      label: await reverseGeocodeAddress(lat, lng).catch(() => `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`),
+    }
+
+    setMapCenter([lat, lng])
+
+    if (mode === 'start') {
+      setPlanStartLocation(nextLocation)
+      setPlanStartInput(nextLocation.label)
+    }
+
+    if (mode === 'destination') {
+      setPlanDestinationLocation(nextLocation)
+      setPlanDestinationInput(nextLocation.label)
+    }
+
+    if (mode === 'stop') {
+      setPlanStops((current) => [
+        ...current,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          ...nextLocation,
+        },
+      ])
+      setPlanStopInput('')
+    }
+  }
+
+  const handlePlanAddStop = async () => {
+    const trimmedStop = planStopInput.trim()
+
+    if (!trimmedStop) {
+      setPlanError('Enter a stop location first.')
+      return
+    }
+
+    try {
+      setPlanError('')
+      const stopLocation = await geocodeAddress(trimmedStop)
+      setPlanStops((current) => [
+        ...current,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          ...stopLocation,
+        },
+      ])
+      setPlanStopInput('')
+    } catch (error) {
+      setPlanError(error?.message || 'Unable to add stop')
+    }
+  }
+
+  const handlePlanRemoveStop = (stopId) => {
+    setPlanStops((current) => current.filter((stop) => stop.id !== stopId))
+  }
+
+  const handlePlanMapClick = async (lat, lng) => {
+    if (planPickMode === 'start' || planPickMode === 'destination' || planPickMode === 'stop') {
+      await requestPlanLocation(planPickMode, lat, lng)
+      setPlanPickMode('')
+      setShowPlanFormMobile(true)
+      return
+    }
+
+    if (dashboardMode === DASHBOARD_MODES.plan) {
+      if (isMobileViewport) {
+        if (showPlanFormMobile || showPlanDetailsMobile) {
+          setShowPlanFormMobile(false)
+          setShowPlanDetailsMobile(false)
+          return
+        }
+      } else if (showPlanFormDesktop || showPlanSummaryDesktop) {
+        setShowPlanFormDesktop(false)
+        setShowPlanSummaryDesktop(false)
+        return
+      }
+    }
+
+    if (dashboardMode === DASHBOARD_MODES.explore) {
+      handleMapClickExploreMode(lat, lng)
+    }
+  }
+
+  const handlePlanUseGps = async () => {
+    if (!navigator.geolocation) {
+      setPlanError('Geolocation is not supported by your browser.')
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude
+        const lng = position.coords.longitude
+        const label = await reverseGeocodeAddress(lat, lng).catch(() => 'Current location')
+        setMapCenter([lat, lng])
+        setPlanStartLocation({ lat, lng, label })
+        setPlanStartInput(label)
+        setPlanError('')
+      },
+      () => {
+        setPlanError('Unable to retrieve your location. Please check browser permissions.')
+      },
+    )
+  }
+
+  const handlePlanSubmit = async (event) => {
+    event.preventDefault()
+    setPlanError('')
+
+    try {
+      const startPoint = planStartLocation || await geocodeAddress(planStartInput)
+      const endPoint = planDestinationLocation || await geocodeAddress(planDestinationInput)
+      const waypointPoints = [startPoint, ...planStops, endPoint]
+
+      if (!Number.isFinite(startPoint.lat) || !Number.isFinite(startPoint.lng)) {
+        throw new Error('Invalid start location')
+      }
+
+      if (!Number.isFinite(endPoint.lat) || !Number.isFinite(endPoint.lng)) {
+        throw new Error('Invalid destination')
+      }
+
+      if (waypointPoints.length < 2) {
+        throw new Error('Add a start and destination')
+      }
+
+      clearPlanRoute()
+      setPlanLoading(true)
+      const response = await fetchCyclingRoute(waypointPoints, import.meta.env.VITE_OPENROUTESERVICE_API_KEY)
+      const feature = response?.features?.[0]
+      const coordinates = Array.isArray(feature?.geometry?.coordinates) ? feature.geometry.coordinates : []
+      const summary = feature?.properties?.summary || feature?.properties?.segments?.[0] || {}
+      const routeDistanceKm = Number(summary.distance || 0) / 1000
+      const routeDurationMin = Number(summary.duration || 0) / 60
+      const routeBoundsCoords = coordinates.map(([lng, lat]) => [lat, lng])
+      const hazardMatches = coordinates.reduce((matches, coordinate) => {
+        const [lng, lat] = coordinate
+        const routeHazards = hazardCoordinateEntries.filter(({ hazard, coordinates: hazardCoordinates }) => {
+          const distance = calculateDistance(lat, lng, hazardCoordinates.lat, hazardCoordinates.lng)
+          return distance <= HAZARD_INTERSECTION_RADIUS_KM
+        })
+
+        routeHazards.forEach(({ hazard }) => {
+          const hazardId = hazard?._id || hazard?.id || `${hazard?.title || 'hazard'}-${hazard?.createdAt || ''}`
+          if (!matches.some((entry) => entry.key === hazardId)) {
+            matches.push({
+              key: hazardId,
+              title: hazard?.title || 'Unnamed hazard',
+              type: formatHazardLabel(hazard?.type, 'Other'),
+              severity: formatHazardLabel(hazard?.severity, 'Medium'),
+            })
+          }
+        })
+
+        return matches
+      }, [])
+
+      setPlannedRoute({
+        coordinates,
+        distanceKm: routeDistanceKm,
+        durationMin: routeDurationMin,
+        startPoint,
+        endPoint,
+        hazards: hazardMatches,
+      })
+
+      if (isMobileViewport) {
+        setShowPlanFormMobile(false)
+        setShowPlanDetailsMobile(false)
+      } else {
+        setShowPlanFormDesktop(false)
+        setShowPlanSummaryDesktop(true)
+      }
+
+      if (routeBoundsCoords.length >= 2) {
+        const latitudes = routeBoundsCoords.map(([lat]) => lat)
+        const longitudes = routeBoundsCoords.map(([, lng]) => lng)
+        setPlannedRouteBounds([
+          [Math.min(...latitudes), Math.min(...longitudes)],
+          [Math.max(...latitudes), Math.max(...longitudes)],
+        ])
+      }
+    } catch (submitError) {
+      setPlanError(submitError?.message || 'Unable to plan this ride')
+    } finally {
+      setPlanLoading(false)
+    }
+  }
+
   // NEW: Handle Filter Clicks & Geolocation
   const handleFilterClick = (filterName) => {
     setSelectedRoute(null)
@@ -381,6 +754,8 @@ export default function MapDashboard() {
 
   // NEW: The Filtering Engine
   const filteredRoutes = routes.filter((route) => {
+    if (dashboardMode !== DASHBOARD_MODES.explore) return false
+
     if (activeFilter === 'All') return true;
     if (activeFilter === 'Distance') return Number(route.distance) <= Number(maxDistanceFilter);
     if (activeFilter === 'Eco') return Number(route.ecoScore) >= Number(minEcoScoreFilter);
@@ -399,6 +774,10 @@ export default function MapDashboard() {
   });
 
   useEffect(() => {
+    if (dashboardMode !== DASHBOARD_MODES.explore) {
+      return
+    }
+
     if (!selectedRoute) return
 
     const isVisible = filteredRoutes.some((route) => (route._id || route.id) === (selectedRoute._id || selectedRoute.id))
@@ -618,6 +997,73 @@ export default function MapDashboard() {
     setLocationPickMode('')
   }
 
+  const handleOpenPlanEditor = () => {
+    setShowPlanFormMobile(true)
+    setShowPlanDetailsMobile(false)
+    setShowPlanFormDesktop(true)
+    setShowPlanSummaryDesktop(false)
+  }
+
+  const handleCollapsePlanForm = () => {
+    if (isMobileViewport) {
+      setShowPlanFormMobile(false)
+      return
+    }
+
+    setShowPlanFormDesktop(false)
+  }
+
+  const handleMapClickExploreMode = (lat, lng) => {
+    if (locationPickMode === 'start' || locationPickMode === 'end') {
+      handlePickRoutePoint(locationPickMode, lat, lng)
+      return
+    }
+
+    if (dashboardMode === DASHBOARD_MODES.explore) {
+      if (showCreatePanel || selectedRoute || createdRouteDetails) {
+        setShowCreatePanel(false)
+        setLocationPickMode('')
+        setEditingRouteId('')
+        setSelectedRoute(null)
+        setCreatedRouteDetails(null)
+      }
+    }
+  }
+
+  const handleCloseCreatePanel = () => {
+    setShowCreatePanel(false)
+    setLocationPickMode('')
+    setEditingRouteId('')
+  }
+
+  const handleShowPlanSummary = () => {
+    setShowPlanFormDesktop(false)
+
+    if (isMobileViewport) {
+      setShowPlanDetailsMobile(true)
+      return
+    }
+
+    setShowPlanSummaryDesktop(true)
+  }
+
+  const handleClosePlanSummary = () => {
+    setShowPlanDetailsMobile(false)
+    setShowPlanSummaryDesktop(false)
+  }
+
+  const handleStartNewPlan = () => {
+    clearPlanRoute()
+    setPlanPickMode('')
+    setShowPlanFormMobile(true)
+    setShowPlanFormDesktop(true)
+    setShowPlanSummaryDesktop(false)
+  }
+
+  const hidePlanFormForMobilePicking = dashboardMode === DASHBOARD_MODES.plan && isMobileViewport && Boolean(planPickMode)
+  const hidePlanFormForMobile = dashboardMode === DASHBOARD_MODES.plan && isMobileViewport && !showPlanFormMobile
+  const hidePlanFormForDesktop = dashboardMode === DASHBOARD_MODES.plan && !isMobileViewport && !showPlanFormDesktop
+
   return (
     <div className="dashboard-page relative">
       <div className="map-section relative">
@@ -656,40 +1102,42 @@ export default function MapDashboard() {
             <span>Live Map</span>
           </div>
 
-          <div className="absolute top-4 left-16 z-[1000] pointer-events-auto flex flex-wrap gap-2 pr-4 max-w-[calc(100%-2rem)]">
-            {[
-              { key: 'All', label: 'All' },
-              { key: 'Distance', label: `<= ${maxDistanceFilter}km` },
-              { key: 'Eco', label: `Eco ${minEcoScoreFilter}+` },
-              { key: 'Near Me', label: userLoc ? '📍 Near Me (Active)' : 'Near Me' },
-            ].map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => handleFilterClick(f.key)}
-                className={`filter-pill ${activeFilter === f.key ? 'active' : ''}`}
-              >
-                {f.label}
-              </button>
-            ))}
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={handleStartNewRoute}
-                className="filter-pill"
-                style={{
-                  background: showCreatePanel ? 'var(--brand-500)' : 'rgba(16, 185, 129, 0.15)',
-                  borderColor: 'var(--brand-500)',
-                  color: showCreatePanel ? '#fff' : 'var(--brand-400)',
-                  fontWeight: '600',
-                }}
-              >
-                ✚ New Route
-              </button>
-            )}
-          </div>
+          {dashboardMode === DASHBOARD_MODES.explore ? (
+            <div className="absolute top-4 left-16 z-[1000] pointer-events-auto flex max-w-[calc(100%-2rem)] flex-wrap gap-2 pr-4">
+              {[
+                { key: 'All', label: 'All' },
+                { key: 'Distance', label: `<= ${maxDistanceFilter}km` },
+                { key: 'Eco', label: `Eco ${minEcoScoreFilter}+` },
+                { key: 'Near Me', label: userLoc ? '📍 Near Me (Active)' : 'Near Me' },
+              ].map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => handleFilterClick(f.key)}
+                  className={`filter-pill ${activeFilter === f.key ? 'active' : ''}`}
+                >
+                  {f.label}
+                </button>
+              ))}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={handleStartNewRoute}
+                  className="filter-pill"
+                  style={{
+                    background: showCreatePanel ? 'var(--brand-500)' : 'rgba(16, 185, 129, 0.15)',
+                    borderColor: 'var(--brand-500)',
+                    color: showCreatePanel ? '#fff' : 'var(--brand-400)',
+                    fontWeight: '600',
+                  }}
+                >
+                  ✚ New Route
+                </button>
+              )}
+            </div>
+          ) : null}
 
-          {showDistanceSlider && (
+          {dashboardMode === DASHBOARD_MODES.explore && showDistanceSlider && (
             <div className="absolute top-14 left-16 z-[1000] pointer-events-auto rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(16,21,33,0.82)] px-3 py-2 shadow-lg backdrop-blur-sm">
               <label className="flex items-center gap-3 text-xs font-medium text-gray-200">
                 <span>Distance {maxDistanceFilter}km</span>
@@ -710,7 +1158,7 @@ export default function MapDashboard() {
             </div>
           )}
 
-          {showEcoSlider && (
+          {dashboardMode === DASHBOARD_MODES.explore && showEcoSlider && (
             <div className="absolute top-14 left-16 z-[1000] pointer-events-auto rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(16,21,33,0.82)] px-3 py-2 shadow-lg backdrop-blur-sm">
               <label className="flex items-center gap-3 text-xs font-medium text-gray-200">
                 <span>Eco Score {minEcoScoreFilter}+</span>
@@ -731,9 +1179,356 @@ export default function MapDashboard() {
             </div>
           )}
 
-          {isAdmin && showCreatePanel && (
+          {dashboardMode === DASHBOARD_MODES.plan && hidePlanFormForMobilePicking ? (
+            <div className="absolute left-1/2 top-4 z-[1000] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl border border-sky-400/25 bg-slate-950/90 px-4 py-3 text-sm text-sky-100 shadow-2xl backdrop-blur-md">
+              <div className="flex items-start justify-between gap-3">
+                <span>Tap the map to set the {planPickMode === 'start' ? 'start location' : planPickMode === 'stop' ? 'stop location' : 'destination'}.</span>
+                <button
+                  type="button"
+                  onClick={() => setPlanPickMode('')}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-white/10 text-xs font-semibold text-white hover:bg-white/20"
+                  aria-label="Collapse picking helper"
+                >
+                  X
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {dashboardMode === DASHBOARD_MODES.plan && hidePlanFormForMobile && !hidePlanFormForMobilePicking ? (
+            <div className="absolute left-4 top-4 z-[1000] flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleOpenPlanEditor}
+                className="rounded-xl border border-sky-400/30 bg-slate-950/90 px-3 py-2 text-xs font-semibold text-sky-100 shadow-xl backdrop-blur"
+              >
+                Edit Plan
+              </button>
+              {plannedRoute ? (
+                <button
+                  type="button"
+                  onClick={handleShowPlanSummary}
+                  className="rounded-xl border border-white/15 bg-slate-950/90 px-3 py-2 text-xs font-semibold text-white shadow-xl backdrop-blur"
+                >
+                  View Summary
+                </button>
+              ) : null}
+              {plannedRoute ? (
+                <button
+                  type="button"
+                  onClick={handleStartNewPlan}
+                  className="rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100 shadow-xl backdrop-blur"
+                >
+                  New Plan
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {dashboardMode === DASHBOARD_MODES.plan && hidePlanFormForDesktop ? (
+            <div className="absolute left-4 top-4 z-[1000] flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleOpenPlanEditor}
+                className="rounded-xl border border-sky-400/30 bg-slate-950/90 px-3 py-2 text-xs font-semibold text-sky-100 shadow-xl backdrop-blur"
+              >
+                Edit Plan
+              </button>
+              {plannedRoute ? (
+                <button
+                  type="button"
+                  onClick={handleShowPlanSummary}
+                  className="rounded-xl border border-white/15 bg-slate-950/90 px-3 py-2 text-xs font-semibold text-white shadow-xl backdrop-blur"
+                >
+                  View Summary
+                </button>
+              ) : null}
+              {plannedRoute ? (
+                <button
+                  type="button"
+                  onClick={handleStartNewPlan}
+                  className="rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100 shadow-xl backdrop-blur"
+                >
+                  New Plan
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {dashboardMode === DASHBOARD_MODES.plan && plannedRoute && !isMobileViewport && showPlanSummaryDesktop ? (
+            <div className="absolute left-4 top-4 z-[1000] w-[calc(100%-2rem)] max-w-[30rem] space-y-3 rounded-3xl border border-sky-400/20 bg-slate-950/90 p-4 shadow-2xl backdrop-blur-md max-h-[calc(100vh-8rem)] overflow-y-auto md:left-4 md:top-4 md:w-[30rem]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Trip Summary</div>
+                  <div className="mt-1 text-sm text-white">
+                    {plannedRoute.distanceKm.toFixed(2)} km · {Math.max(1, Math.round(plannedRoute.durationMin))} min
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPlanSummaryDesktop(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold leading-none text-white hover:bg-white/10"
+                  aria-label="Close summary"
+                >
+                  X
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full bg-sky-500/15 px-3 py-1 text-sky-200">Start: {formatShortLocationLabel(plannedRoute.startPoint.label)}</span>
+                <span className="rounded-full bg-sky-500/15 px-3 py-1 text-sky-200">Destination: {formatShortLocationLabel(plannedRoute.endPoint.label)}</span>
+                <span className="rounded-full bg-white/10 px-3 py-1 text-slate-200">Stops: {planStops.length}</span>
+                <span className={`rounded-full px-3 py-1 ${plannedRoute.hazards.length ? 'bg-amber-500/15 text-amber-200' : 'bg-emerald-500/15 text-emerald-200'}`}>
+                  {plannedRoute.hazards.length ? `${plannedRoute.hazards.length} hazard(s) detected` : 'Route cleared of detected hazards'}
+                </span>
+              </div>
+              {planStops.length ? (
+                <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-3 text-xs text-slate-300">
+                  <div className="mb-2 font-semibold text-slate-100">Route Stops</div>
+                  <div className="space-y-1">
+                    {planStops.map((stop, index) => (
+                      <div key={stop.id}>Stop {index + 1}: {formatShortLocationLabel(stop.label)}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {plannedRoute?.hazards?.length ? (
+                <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3">
+                  <div className="text-sm font-semibold text-red-100">Warning: hazards intersect this route</div>
+                  <ul className="mt-2 space-y-1 text-sm text-red-200">
+                    {plannedRoute.hazards.slice(0, 6).map((hazard) => (
+                      <li key={hazard.key}>• {hazard.title} ({hazard.type}, {hazard.severity})</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {dashboardMode === DASHBOARD_MODES.plan && !hidePlanFormForMobilePicking && !hidePlanFormForMobile && !hidePlanFormForDesktop ? (
+            <div className="absolute left-4 top-4 z-[1000] w-[calc(100%-2rem)] max-w-[30rem] space-y-3 rounded-3xl border border-sky-400/20 bg-slate-950/90 p-4 shadow-2xl backdrop-blur-md max-h-[calc(100vh-8rem)] overflow-y-auto md:left-4 md:top-4 md:w-[30rem]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.24em] text-sky-300/80">Plan Ride</div>
+                  <h3 className="mt-1 text-lg font-semibold text-white">Plan a cycling route</h3>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">Add a start point, optional stops, and a destination.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCollapsePlanForm}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold leading-none text-white hover:bg-white/10"
+                  aria-label="Collapse plan form"
+                >
+                  X
+                </button>
+              </div>
+
+              {showPlanFormDesktop || !plannedRoute ? (
+              <form className="space-y-4" onSubmit={handlePlanSubmit}>
+                <div className="space-y-2 rounded-2xl border border-white/5 bg-white/5 p-3">
+                  <label className="mb-1 block text-xs font-medium text-slate-300">Start Location</label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="text"
+                      value={planStartInput}
+                      onChange={(event) => {
+                        setPlanStartInput(event.target.value)
+                        setPlanStartLocation(null)
+                      }}
+                      placeholder="Enter start address"
+                      className="min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePlanUseGps}
+                      className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-200 hover:bg-sky-500/20 sm:shrink-0"
+                    >
+                      📍 Use GPS
+                    </button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlanPickMode((current) => (current === 'start' ? '' : 'start'))
+                        if (isMobileViewport) {
+                          setShowPlanFormMobile(false)
+                        }
+                      }}
+                      className={`rounded-xl px-3 py-2 text-xs font-medium transition ${planPickMode === 'start' ? 'bg-emerald-500 text-slate-950' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}
+                    >
+                      {planPickMode === 'start' ? 'Click map to set start' : 'Pick start on map'}
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2 rounded-2xl border border-white/5 bg-white/5 p-3">
+                  <label className="mb-1 block text-xs font-medium text-slate-300">Destination</label>
+                  <input
+                    type="text"
+                    value={planDestinationInput}
+                    onChange={(event) => {
+                      setPlanDestinationInput(event.target.value)
+                      setPlanDestinationLocation(null)
+                    }}
+                    placeholder="Enter destination address"
+                    className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
+                  />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlanPickMode((current) => (current === 'destination' ? '' : 'destination'))
+                        if (isMobileViewport) {
+                          setShowPlanFormMobile(false)
+                        }
+                      }}
+                      className={`rounded-xl px-3 py-2 text-xs font-medium transition ${planPickMode === 'destination' ? 'bg-emerald-500 text-slate-950' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}
+                    >
+                      {planPickMode === 'destination' ? 'Click map to set destination' : 'Pick destination on map'}
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2 rounded-2xl border border-white/5 bg-white/5 p-3">
+                  <label className="mb-1 block text-xs font-medium text-slate-300">Stops</label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="text"
+                      value={planStopInput}
+                      onChange={(event) => setPlanStopInput(event.target.value)}
+                      placeholder="Add an intermediate stop"
+                      className="min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePlanAddStop}
+                      className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-200 hover:bg-sky-500/20 sm:shrink-0"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlanPickMode((current) => (current === 'stop' ? '' : 'stop'))
+                        if (isMobileViewport) {
+                          setShowPlanFormMobile(false)
+                        }
+                      }}
+                      className={`rounded-xl px-3 py-2 text-xs font-medium transition ${planPickMode === 'stop' ? 'bg-emerald-500 text-slate-950' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}
+                    >
+                      {planPickMode === 'stop' ? 'Click map to add stop' : 'Pick stop on map'}
+                    </button>
+                  </div>
+                  {planStops.length ? (
+                    <div className="mt-2 max-h-36 space-y-2 overflow-y-auto rounded-2xl border border-white/10 bg-white/5 p-2">
+                      {planStops.map((stop, index) => (
+                        <div key={stop.id} className="flex items-start justify-between gap-2 rounded-xl bg-slate-900/70 px-3 py-2 text-xs text-slate-200">
+                          <div>
+                            <div className="font-semibold text-white">Stop {index + 1}</div>
+                            <div className="text-slate-400">{stop.label}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handlePlanRemoveStop(stop.id)}
+                            className="rounded-full border border-red-500/30 px-2 py-1 text-[11px] font-medium text-red-200 hover:bg-red-500/10"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <button
+                  type="submit"
+                  disabled={planLoading}
+                  className="w-full rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {planLoading ? 'Planning ride...' : 'Plan Ride'}
+                </button>
+              </form>
+              ) : null}
+
+              {planError ? (
+                <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{planError}</div>
+              ) : null}
+
+            </div>
+          ) : null}
+
+          {dashboardMode === DASHBOARD_MODES.plan && isMobileViewport && plannedRoute && showPlanDetailsMobile ? (
+            <div
+              className="absolute inset-0 z-[1000] flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm"
+              onClick={handleClosePlanSummary}
+              role="presentation"
+            >
+              <div
+                className="w-full max-w-sm space-y-3 rounded-2xl border border-white/15 bg-slate-950/95 p-4 shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Trip summary"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Trip Summary</div>
+                    <div className="mt-1 text-sm text-white">
+                      {plannedRoute.distanceKm.toFixed(2)} km · {Math.max(1, Math.round(plannedRoute.durationMin))} min
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClosePlanSummary}
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-lg font-semibold leading-none text-white hover:bg-white/10"
+                    aria-label="Close trip summary"
+                  >
+                    X
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="rounded-full bg-sky-500/15 px-3 py-1 text-sky-200">Start: {formatShortLocationLabel(plannedRoute.startPoint.label)}</span>
+                  <span className="rounded-full bg-sky-500/15 px-3 py-1 text-sky-200">Destination: {formatShortLocationLabel(plannedRoute.endPoint.label)}</span>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-slate-200">Stops: {planStops.length}</span>
+                </div>
+                {planStops.length ? (
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-2 text-xs text-slate-300">
+                    <div className="mb-1 font-semibold text-slate-100">Stops</div>
+                    {planStops.map((stop, index) => (
+                      <div key={stop.id}>Stop {index + 1}: {formatShortLocationLabel(stop.label)}</div>
+                    ))}
+                  </div>
+                ) : null}
+                {plannedRoute?.hazards?.length ? (
+                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-2">
+                    <div className="text-sm font-semibold text-red-100">Warning: hazards intersect this route</div>
+                    <ul className="mt-1 space-y-1 text-xs text-red-200">
+                      {plannedRoute.hazards.slice(0, 4).map((hazard) => (
+                        <li key={hazard.key}>• {hazard.title} ({hazard.type}, {hazard.severity})</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-2 text-xs text-emerald-200">
+                    Route cleared of detected hazards.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {dashboardMode === DASHBOARD_MODES.explore && isAdmin && showCreatePanel && (
             <div className="absolute top-14 left-16 z-[1000] pointer-events-auto w-96 bg-[#1c2333] border border-[rgba(100,200,255,0.2)] rounded-xl shadow-2xl p-5 backdrop-blur-sm">
-              <h3 className="text-lg font-bold text-white mb-4">{editingRouteId ? 'Edit Route' : 'Create New Route'}</h3>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <h3 className="text-lg font-bold text-white">{editingRouteId ? 'Edit Route' : 'Create New Route'}</h3>
+                <button
+                  type="button"
+                  onClick={handleCloseCreatePanel}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white hover:bg-white/10"
+                  aria-label="Close create panel"
+                >
+                  X
+                </button>
+              </div>
               <div className="space-y-3">
                 <input
                   type="text"
@@ -845,7 +1640,7 @@ export default function MapDashboard() {
             </div>
           )}
 
-          {selectedRoute && (
+          {dashboardMode === DASHBOARD_MODES.explore && selectedRoute && (
             <div className="absolute top-16 right-4 z-[1000] w-80 bg-[#1c2333] border border-[rgba(255,255,255,0.1)] rounded-xl shadow-2xl overflow-hidden flex flex-col pointer-events-auto max-w-[calc(100%-2rem)]">
               <div className="bg-[#232d42] p-4 flex justify-between items-start border-b border-[rgba(255,255,255,0.06)]">
                 <div>
@@ -858,13 +1653,10 @@ export default function MapDashboard() {
                 <button
                   type="button"
                   onClick={() => setSelectedRoute(null)}
-                  className="text-gray-400 hover:text-white transition-colors bg-[rgba(255,255,255,0.05)] rounded-full p-1"
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white hover:bg-white/10"
                   aria-label="Close route details"
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
+                  X
                 </button>
               </div>
 
@@ -917,7 +1709,7 @@ export default function MapDashboard() {
             </div>
           )}
 
-          {createdRouteDetails && (
+          {dashboardMode === DASHBOARD_MODES.explore && createdRouteDetails && (
             <div className="absolute top-16 right-4 z-[1000] w-[30rem] max-w-[calc(100%-2rem)] bg-[#1c2333] border border-[rgba(255,255,255,0.12)] rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
               <div className="bg-[#232d42] px-4 py-3 border-b border-[rgba(255,255,255,0.08)] flex items-center justify-between gap-3">
                 <div>
@@ -927,9 +1719,10 @@ export default function MapDashboard() {
                 <button
                   type="button"
                   onClick={() => setCreatedRouteDetails(null)}
-                  className="btn btn-ghost"
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white hover:bg-white/10"
+                  aria-label="Close created route details"
                 >
-                  Close
+                  X
                 </button>
               </div>
               <div className="p-3 max-h-72 overflow-auto">
@@ -947,12 +1740,12 @@ export default function MapDashboard() {
           ) : error ? (
              <div className="map-loading text-red-500"><span>{error}</span></div>
           ) : (
-            <MapContainer center={mapCenter} zoom={13} className="leaflet-map z-0">
+            <MapContainer center={mapCenter} zoom={13} className={`leaflet-map z-0 ${(dashboardMode === DASHBOARD_MODES.explore && (showCreatePanel || selectedRoute || createdRouteDetails)) || (dashboardMode === DASHBOARD_MODES.plan && (showPlanSummaryDesktop && !isMobileViewport)) ? 'opacity-40' : ''}`}>
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap' />
               
               {/* This smoothly pans the map if mapCenter changes! */}
-              <MapUpdater center={mapCenter} bounds={routeBounds} />
-              <MapLocationPicker mode={locationPickMode} onPick={handlePickRoutePoint} />
+              <MapUpdater center={mapCenter} bounds={activeMapBounds} />
+              <MapInteractionLayer onMapClick={handlePlanMapClick} />
 
               {/* Draw User Location Marker if they clicked Near Me */}
               {userLoc && (
@@ -961,13 +1754,13 @@ export default function MapDashboard() {
                 </Marker>
               )}
 
-              {showCreatePanel && newRouteForm.startLat && newRouteForm.startLng && (
+              {dashboardMode === DASHBOARD_MODES.explore && showCreatePanel && newRouteForm.startLat && newRouteForm.startLng && (
                 <Marker position={[Number(newRouteForm.startLat), Number(newRouteForm.startLng)]}>
                   <Popup><strong>Start point</strong></Popup>
                 </Marker>
               )}
 
-              {showCreatePanel && newRouteForm.endLat && newRouteForm.endLng && (
+              {dashboardMode === DASHBOARD_MODES.explore && showCreatePanel && newRouteForm.endLat && newRouteForm.endLng && (
                 <Marker position={[Number(newRouteForm.endLat), Number(newRouteForm.endLng)]}>
                   <Popup><strong>End point</strong></Popup>
                 </Marker>
@@ -979,8 +1772,9 @@ export default function MapDashboard() {
                 const hazardTypeKey = normalizeHazardType(hazard?.type)
                 const markerIcon = getHazardMarkerIcon(severity, hazardTypeKey)
                 const hazardType = formatHazardLabel(hazard?.type, 'Other')
+                const hazardSeverity = formatHazardLabel(hazard?.severity, 'Medium')
+                const hazardStatus = normalizeHazardStatus(hazard?.status)
                 const currentStatus = formatHazardLabel(hazard?.status, 'Reported')
-                const uploadedBy = hazard?.createdBy?.name || hazard?.createdBy?.email || 'Unknown rider'
                 const uploadTime = formatHazardUploadTime(hazard?.createdAt)
                 const hazardId = hazard?._id || hazard?.id
 
@@ -999,11 +1793,13 @@ export default function MapDashboard() {
                         <div className="card-body card-body-grow">
                           <div className="card-title-row">
                             <h3 className="card-title">{hazard?.title || 'Hazard report'}</h3>
-                            <span className="badge badge-medium">{currentStatus}</span>
+                          </div>
+                          <div className="map-hazard-popup-tags">
+                            <span className={`badge badge-${severity}`}>{hazardSeverity}</span>
+                            <span className={`badge map-hazard-status-badge map-hazard-status-${hazardStatus}`}>{currentStatus}</span>
                           </div>
                           <div className="card-meta">
                             <span className="meta-row"><strong>Type:</strong> {hazardType}</span>
-                            <span className="meta-row"><strong>Uploaded by:</strong> {uploadedBy}</span>
                             <span className="meta-row"><strong>Upload time:</strong> {uploadTime}</span>
                           </div>
                         </div>
@@ -1025,30 +1821,66 @@ export default function MapDashboard() {
                 )
               })}
               
-              {/* Draw Filtered Routes */}
-              {filteredRoutes.map((route, index) => {
-                const safePositions = normalizePathCoordinates(route.pathCoordinates)
+              {dashboardMode === DASHBOARD_MODES.explore ? (
+                filteredRoutes.map((route, index) => {
+                  const safePositions = normalizePathCoordinates(route.pathCoordinates)
 
-                if (safePositions.length === 0) return null;
+                  if (safePositions.length === 0) return null;
 
-                const routeId = route._id || route.id
-                const selectedRouteId = selectedRoute?._id || selectedRoute?.id
-                const isSelected = selectedRouteId && routeId === selectedRouteId
+                  const routeId = route._id || route.id
+                  const selectedRouteId = selectedRoute?._id || selectedRoute?.id
+                  const isSelected = selectedRouteId && routeId === selectedRouteId
 
-                return (
-                  <Polyline
-                    key={routeId || `${route.title || 'route'}-${index}`}
-                    positions={safePositions}
-                    color={isSelected ? '#34d399' : '#10b981'}
-                    weight={isSelected ? 8 : 5}
-                    eventHandlers={{
-                      click: () => {
-                        setSelectedRoute(route)
-                      },
-                    }}
-                  />
-                );
-              })}
+                  return (
+                    <Polyline
+                      key={routeId || `${route.title || 'route'}-${index}`}
+                      positions={safePositions}
+                      color={isSelected ? '#34d399' : '#10b981'}
+                      weight={isSelected ? 8 : 5}
+                      eventHandlers={{
+                        click: () => {
+                          setSelectedRoute(route)
+                        },
+                      }}
+                    />
+                  )
+                })
+              ) : null}
+
+              {dashboardMode === DASHBOARD_MODES.plan && plannedRoute?.coordinates?.length ? (
+                <Polyline
+                  positions={plannedRoute.coordinates.map(([lng, lat]) => [lat, lng])}
+                  color={plannedRoute.hazards.length ? '#f59e0b' : '#3b82f6'}
+                  weight={7}
+                  eventHandlers={{
+                    click: () => {
+                      if (isMobileViewport) {
+                        setShowPlanDetailsMobile(true)
+                      } else {
+                        setShowPlanSummaryDesktop(true)
+                      }
+                    },
+                  }}
+                />
+              ) : null}
+
+              {dashboardMode === DASHBOARD_MODES.plan && planStartLocation ? (
+                <Marker position={[planStartLocation.lat, planStartLocation.lng]}>
+                  <Popup><strong>Start location</strong><br />{planStartLocation.label}</Popup>
+                </Marker>
+              ) : null}
+
+              {dashboardMode === DASHBOARD_MODES.plan && planStops.map((stop, index) => (
+                <Marker key={stop.id} position={[stop.lat, stop.lng]}>
+                  <Popup><strong>Stop {index + 1}</strong><br />{stop.label}</Popup>
+                </Marker>
+              ))}
+
+              {dashboardMode === DASHBOARD_MODES.plan && planDestinationLocation ? (
+                <Marker position={[planDestinationLocation.lat, planDestinationLocation.lng]}>
+                  <Popup><strong>Destination</strong><br />{planDestinationLocation.label}</Popup>
+                </Marker>
+              ) : null}
             </MapContainer>
           )}
         </div>
@@ -1098,6 +1930,16 @@ function normalizeHazardType(type) {
     return value
   }
   return 'other'
+}
+
+function normalizeHazardStatus(status) {
+  const value = String(status || 'reported').toLowerCase().trim()
+
+  if (value === 'pending' || value === 'resolved' || value === 'reported') {
+    return value
+  }
+
+  return 'reported'
 }
 
 function getNextHazardSeverity(current) {
@@ -1150,6 +1992,18 @@ function formatHazardUploadTime(value) {
   if (Number.isNaN(date.getTime())) return 'Unknown time'
 
   return date.toLocaleString()
+}
+
+function formatShortLocationLabel(value) {
+  const parts = String(value || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length === 0) return 'Location unavailable'
+  if (parts.length === 1) return parts[0]
+
+  return parts.slice(0, 2).join(', ')
 }
 
 function createHazardPinIcon(severity, type) {

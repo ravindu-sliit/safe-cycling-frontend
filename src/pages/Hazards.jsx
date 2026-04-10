@@ -17,7 +17,7 @@ const INITIAL_FORM = {
   communityComment: '',
 }
 
-const COORDINATE_PRECISION = 6
+const MAX_ACCEPTED_LOCATION_ACCURACY_METERS = 100
 
 function SeverityBadge({ severity }) {
   const normalized = String(severity || 'low').toLowerCase()
@@ -55,6 +55,48 @@ function getHazardOwnerId(hazard) {
   return createdBy?._id || createdBy?.id || null
 }
 
+function getHazardUpdateUserId(update) {
+  const user = update?.user
+  if (!user) return null
+  if (typeof user === 'string') return user
+  return user?._id || user?.id || null
+}
+
+function getUserDisplayName(user, fallback = 'Community rider') {
+  if (!user) return fallback
+  if (typeof user === 'string') return fallback
+
+  const name = typeof user?.name === 'string' ? user.name.trim() : ''
+  if (name) return name
+
+  const email = typeof user?.email === 'string' ? user.email.trim() : ''
+  if (email) return email
+
+  return fallback
+}
+
+function getHazardUpdateId(update) {
+  return update?._id || update?.id || ''
+}
+
+function extractRequestErrorMessage(error, fallbackMessage) {
+  const payload = error?.response?.data
+
+  if (typeof payload?.message === 'string' && payload.message.trim()) {
+    return payload.message
+  }
+
+  if (typeof payload === 'string' && payload.trim()) {
+    return payload
+  }
+
+  if (typeof error?.message === 'string' && error.message.trim()) {
+    return error.message
+  }
+
+  return fallbackMessage
+}
+
 function getHazardCoordinates(hazard) {
   const coordinates = hazard?.location?.coordinates
   if (!Array.isArray(coordinates) || coordinates.length !== 2) {
@@ -70,13 +112,29 @@ function getHazardCoordinates(hazard) {
   return { latitude, longitude }
 }
 
-function normalizeCoordinate(value) {
-  return Number(Number(value).toFixed(COORDINATE_PRECISION))
-}
+function requestCurrentPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Geolocation is not supported by this browser.'))
+      return
+    }
 
-function isSameCoordinatePair(first, second) {
-  return normalizeCoordinate(first.latitude) === normalizeCoordinate(second.latitude)
-    && normalizeCoordinate(first.longitude) === normalizeCoordinate(second.longitude)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: Number(position.coords.latitude),
+          longitude: Number(position.coords.longitude),
+          accuracy: Number(position.coords.accuracy),
+        })
+      },
+      (error) => reject(error),
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      },
+    )
+  })
 }
 
 function formatDate(dateString) {
@@ -84,6 +142,13 @@ function formatDate(dateString) {
   const date = new Date(dateString)
   if (Number.isNaN(date.getTime())) return 'Unknown date'
   return date.toLocaleDateString()
+}
+
+function formatDateTime(dateString) {
+  if (!dateString) return 'Unknown time'
+  const date = new Date(dateString)
+  if (Number.isNaN(date.getTime())) return 'Unknown time'
+  return date.toLocaleString()
 }
 
 function formatCoordinates(latitude, longitude) {
@@ -95,6 +160,15 @@ function formatCoordinates(latitude, longitude) {
   }
 
   return `Latitude: ${lat.toFixed(6)}  Longitude: ${lng.toFixed(6)}`
+}
+
+function formatAccuracyMeters(accuracy) {
+  const value = Number(accuracy)
+  if (!Number.isFinite(value) || value < 0) {
+    return 'GPS accuracy: unavailable'
+  }
+
+  return `GPS accuracy: ±${value.toFixed(1)}m`
 }
 
 function getStatusUpdatesNewestFirst(hazard) {
@@ -159,9 +233,14 @@ export default function Hazards() {
   const [isStatusUpdateMode, setIsStatusUpdateMode] = useState(false)
   const [isOwnerEditMode, setIsOwnerEditMode] = useState(false)
   const [editingHazardId, setEditingHazardId] = useState('')
+  const [editingCommunityUpdateId, setEditingCommunityUpdateId] = useState('')
+  const [editingCommunityUpdateImageUrl, setEditingCommunityUpdateImageUrl] = useState('')
+  const [previousCommunityUpdateImageUrl, setPreviousCommunityUpdateImageUrl] = useState('')
+  const [previousCommunityUpdateTime, setPreviousCommunityUpdateTime] = useState('')
   const [editingHazardImageUrl, setEditingHazardImageUrl] = useState('')
-  const [editingHazardLocation, setEditingHazardLocation] = useState(null)
   const [activeMenuHazardId, setActiveMenuHazardId] = useState('')
+  const [selectedHazardDetails, setSelectedHazardDetails] = useState(null)
+  const [deletingUpdateId, setDeletingUpdateId] = useState('')
   const [deletingHazardId, setDeletingHazardId] = useState('')
   const [formData, setFormData] = useState(INITIAL_FORM)
   const [formError, setFormError] = useState('')
@@ -169,6 +248,7 @@ export default function Hazards() {
   const [currentLocation, setCurrentLocation] = useState({
     latitude: null,
     longitude: null,
+    accuracy: null,
     loading: false,
     error: '',
     name: '',
@@ -217,8 +297,16 @@ export default function Hazards() {
     () => formatCoordinates(currentLocation.latitude, currentLocation.longitude),
     [currentLocation.latitude, currentLocation.longitude],
   )
+  const currentLocationAccuracyText = useMemo(
+    () => formatAccuracyMeters(currentLocation.accuracy),
+    [currentLocation.accuracy],
+  )
 
   const emptyFilterLabel = filter === 'all' ? 'matching' : filter
+  const selectedHazardUpdates = useMemo(
+    () => getStatusUpdatesNewestFirst(selectedHazardDetails),
+    [selectedHazardDetails],
+  )
 
   const onFormChange = (event) => {
     const { name, value } = event.target
@@ -298,28 +386,14 @@ export default function Hazards() {
   }
 
   const detectCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      setCurrentLocation({
-        latitude: null,
-        longitude: null,
-        loading: false,
-        error: 'Geolocation is not supported by this browser.',
-        name: '',
-        resolvingName: false,
-      })
-      return
-    }
+    setCurrentLocation(prev => ({ ...prev, loading: true, error: '', name: '', resolvingName: false, accuracy: null }))
 
-    setCurrentLocation(prev => ({ ...prev, loading: true, error: '', name: '', resolvingName: false }))
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const latitude = position.coords.latitude
-        const longitude = position.coords.longitude
-
+    requestCurrentPosition()
+      .then(async ({ latitude, longitude, accuracy }) => {
         setCurrentLocation({
           latitude,
           longitude,
+          accuracy,
           loading: false,
           error: '',
           name: '',
@@ -340,23 +414,18 @@ export default function Hazards() {
             resolvingName: false,
           }))
         }
-      },
-      (error) => {
+      })
+      .catch((error) => {
         setCurrentLocation({
           latitude: null,
           longitude: null,
+          accuracy: null,
           loading: false,
           error: error?.message || 'Unable to read current location. Please enable location access.',
           name: '',
           resolvingName: false,
         })
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 12000,
-        maximumAge: 60000,
-      }
-    )
+      })
   }
 
   const onImageChange = (event) => {
@@ -378,8 +447,11 @@ export default function Hazards() {
     setIsStatusUpdateMode(false)
     setIsOwnerEditMode(false)
     setEditingHazardId('')
+    setEditingCommunityUpdateId('')
+    setEditingCommunityUpdateImageUrl('')
+    setPreviousCommunityUpdateImageUrl('')
+    setPreviousCommunityUpdateTime('')
     setEditingHazardImageUrl('')
-    setEditingHazardLocation(null)
     setFormData(INITIAL_FORM)
     setImageFile(null)
     setImagePreviewUrl((previousUrl) => {
@@ -391,6 +463,7 @@ export default function Hazards() {
     setCurrentLocation({
       latitude: null,
       longitude: null,
+      accuracy: null,
       loading: false,
       error: '',
       name: '',
@@ -413,10 +486,14 @@ export default function Hazards() {
     setIsStatusUpdateMode(true)
     setIsOwnerEditMode(false)
     setEditingHazardId(hazard?._id || '')
+    setEditingCommunityUpdateId('')
+    setEditingCommunityUpdateImageUrl('')
+    setPreviousCommunityUpdateImageUrl('')
+    setPreviousCommunityUpdateTime('')
     setEditingHazardImageUrl('')
-    setEditingHazardLocation(getHazardCoordinates(hazard))
     setFormData({
       ...INITIAL_FORM,
+      status: hazard?.status || 'reported',
       communityComment: '',
     })
     setImageFile(null)
@@ -433,6 +510,51 @@ export default function Hazards() {
     detectCurrentLocation()
   }
 
+  const openEditCommunityUpdateModal = (hazard, update) => {
+    const hazardOwnerId = getHazardOwnerId(hazard)
+    const updateOwnerId = getHazardUpdateUserId(update)
+    const canManage = Boolean(
+      currentUserId
+      && (currentUserId === updateOwnerId || currentUserId === hazardOwnerId)
+    )
+
+    if (!canManage) {
+      return
+    }
+
+    setFormError('')
+    setIsStatusUpdateMode(true)
+    setIsOwnerEditMode(false)
+    setEditingHazardId(hazard?._id || '')
+    setEditingCommunityUpdateId(getHazardUpdateId(update))
+    setEditingCommunityUpdateImageUrl(update?.imageUrl || '')
+
+    const sortedUpdates = getStatusUpdatesNewestFirst(hazard)
+    const currentUpdateId = getHazardUpdateId(update)
+    const currentIndex = sortedUpdates.findIndex((entry) => getHazardUpdateId(entry) === currentUpdateId)
+    const previousUpdate = currentIndex >= 0 ? sortedUpdates[currentIndex + 1] : null
+    setPreviousCommunityUpdateImageUrl(previousUpdate?.imageUrl || '')
+    setPreviousCommunityUpdateTime(previousUpdate?.createdAt || '')
+
+    setEditingHazardImageUrl('')
+    setFormData({
+      ...INITIAL_FORM,
+      status: update?.status || hazard?.status || 'reported',
+      communityComment: update?.comment || '',
+    })
+    setImageFile(null)
+    setImagePreviewUrl((previousUrl) => {
+      if (previousUrl) {
+        URL.revokeObjectURL(previousUrl)
+      }
+      return ''
+    })
+    setCameraError('')
+    stopCameraStream()
+    setActiveMenuHazardId('')
+    setIsModalOpen(true)
+  }
+
   const openOwnerEditModal = (hazard) => {
     const ownerId = getHazardOwnerId(hazard)
     if (!currentUserId || ownerId !== currentUserId) {
@@ -445,8 +567,11 @@ export default function Hazards() {
     setIsStatusUpdateMode(false)
     setIsOwnerEditMode(true)
     setEditingHazardId(hazard?._id || '')
+    setEditingCommunityUpdateId('')
+    setEditingCommunityUpdateImageUrl('')
+    setPreviousCommunityUpdateImageUrl('')
+    setPreviousCommunityUpdateTime('')
     setEditingHazardImageUrl(hazard?.imageUrl || '')
-    setEditingHazardLocation(null)
     setFormData({
       ...INITIAL_FORM,
       title: hazard?.title || '',
@@ -466,6 +591,7 @@ export default function Hazards() {
     setCurrentLocation({
       latitude: hazardCoordinates?.latitude ?? null,
       longitude: hazardCoordinates?.longitude ?? null,
+      accuracy: null,
       loading: false,
       error: '',
       name: hazard?.locationName || '',
@@ -475,6 +601,61 @@ export default function Hazards() {
     stopCameraStream()
     setActiveMenuHazardId('')
     setIsModalOpen(true)
+  }
+
+  const openHazardDetailsModal = (hazard) => {
+    setSelectedHazardDetails(hazard || null)
+  }
+
+  const closeHazardDetailsModal = () => {
+    setSelectedHazardDetails(null)
+  }
+
+  const handleDeleteCommunityUpdate = async (hazard, update) => {
+    const hazardId = hazard?._id || ''
+    const updateId = getHazardUpdateId(update)
+    if (!hazardId || !updateId) {
+      return
+    }
+
+    const hazardOwnerId = getHazardOwnerId(hazard)
+    const updateOwnerId = getHazardUpdateUserId(update)
+    const canManage = Boolean(
+      currentUserId
+      && (currentUserId === updateOwnerId || currentUserId === hazardOwnerId)
+    )
+
+    if (!canManage) {
+      return
+    }
+
+    const confirmed = window.confirm('Delete this hazard update? This cannot be undone.')
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingUpdateId(updateId)
+
+    try {
+      const response = await api.delete(`/hazards/${hazardId}/updates/${updateId}`)
+      const refreshedHazard = response?.data || null
+
+      if (refreshedHazard) {
+        setHazards((previousHazards) => previousHazards.map((entry) => (
+          (entry?._id || '') === hazardId ? refreshedHazard : entry
+        )))
+      }
+
+      if (refreshedHazard && (selectedHazardDetails?._id || '') === hazardId) {
+        setSelectedHazardDetails(refreshedHazard)
+      }
+
+      await fetchHazards()
+    } catch (error) {
+      setFormError(extractRequestErrorMessage(error, 'Failed to delete this hazard update. Please try again.'))
+    } finally {
+      setDeletingUpdateId('')
+    }
   }
 
   const handleDeleteHazard = async (hazard) => {
@@ -496,6 +677,9 @@ export default function Hazards() {
       if (editingHazardId === hazardId) {
         closeReportModal()
       }
+      if ((selectedHazardDetails?._id || '') === hazardId) {
+        closeHazardDetailsModal()
+      }
       await fetchHazards()
     } catch (error) {
       setFormError(error?.response?.data?.message || 'Failed to delete hazard report. Please try again.')
@@ -511,12 +695,16 @@ export default function Hazards() {
     setIsStatusUpdateMode(false)
     setIsOwnerEditMode(false)
     setEditingHazardId('')
+    setEditingCommunityUpdateId('')
+    setEditingCommunityUpdateImageUrl('')
+    setPreviousCommunityUpdateImageUrl('')
+    setPreviousCommunityUpdateTime('')
     setEditingHazardImageUrl('')
-    setEditingHazardLocation(null)
     setFormData(INITIAL_FORM)
     setCurrentLocation({
       latitude: null,
       longitude: null,
+      accuracy: null,
       loading: false,
       error: '',
       name: '',
@@ -565,6 +753,21 @@ export default function Hazards() {
     }
   }, [cameraStream, imagePreviewUrl])
 
+  useEffect(() => {
+    const selectedHazardId = selectedHazardDetails?._id || ''
+    if (!selectedHazardId) {
+      return
+    }
+
+    const refreshedHazard = hazards.find((hazard) => (hazard?._id || '') === selectedHazardId)
+    if (!refreshedHazard) {
+      setSelectedHazardDetails(null)
+      return
+    }
+
+    setSelectedHazardDetails(refreshedHazard)
+  }, [hazards, selectedHazardDetails?._id])
+
   const uploadImageToImageKit = async () => {
     if (!imageFile) {
       return ''
@@ -593,31 +796,79 @@ export default function Hazards() {
         return
       }
 
-      const latitude = Number(currentLocation.latitude)
-      const longitude = Number(currentLocation.longitude)
+      const communityComment = formData.communityComment.trim()
+      if (!communityComment) {
+        setFormError('Please add a comment about the current hazard situation.')
+        return
+      }
+
+      if (editingCommunityUpdateId) {
+        setSubmitting(true)
+
+        try {
+          let imageUrl = String(editingCommunityUpdateImageUrl || '').trim()
+          if (imageFile) {
+            imageUrl = await uploadImageToImageKit()
+          }
+
+          if (!imageUrl) {
+            setFormError('Please upload a current hazard image before saving your update.')
+            setSubmitting(false)
+            return
+          }
+
+          const payload = {
+            status: formData.status,
+            comment: communityComment,
+            imageUrl,
+          }
+
+          await api.put(`/hazards/${editingHazardId}/updates/${editingCommunityUpdateId}`, payload)
+          closeReportModal()
+          await fetchHazards()
+        } catch (error) {
+          console.error('Failed to edit hazard community update:', error)
+          setFormError(extractRequestErrorMessage(error, 'Failed to edit hazard community update. Please try again.'))
+          setSubmitting(false)
+        }
+
+        return
+      }
+
+      let latitude = Number(currentLocation.latitude)
+      let longitude = Number(currentLocation.longitude)
+      let locationAccuracyMeters = Number(currentLocation.accuracy)
+
+      try {
+        const latestLocation = await requestCurrentPosition()
+        latitude = Number(latestLocation.latitude)
+        longitude = Number(latestLocation.longitude)
+        locationAccuracyMeters = Number(latestLocation.accuracy)
+
+        setCurrentLocation(prev => ({
+          ...prev,
+          latitude,
+          longitude,
+          accuracy: locationAccuracyMeters,
+          loading: false,
+          error: '',
+        }))
+      } catch (error) {
+        setFormError(error?.message || 'Unable to verify your current location. Please tap Use My Location and try again.')
+        return
+      }
+
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
         setFormError('Turn on location services and allow location access before updating hazard status.')
         return
       }
 
-      if (!editingHazardLocation) {
-        setFormError('Hazard location is unavailable for validation.')
-        return
-      }
+      const normalizedAccuracyMeters = Number.isFinite(locationAccuracyMeters)
+        ? Math.max(0, locationAccuracyMeters)
+        : 0
 
-      const isSameLocation = isSameCoordinatePair(
-        { latitude, longitude },
-        editingHazardLocation,
-      )
-
-      if (!isSameLocation) {
-        setFormError('You can post this update only when your longitude and latitude match the hazard location.')
-        return
-      }
-
-      const communityComment = formData.communityComment.trim()
-      if (!communityComment) {
-        setFormError('Please add a comment about the current hazard situation.')
+      if (normalizedAccuracyMeters > MAX_ACCEPTED_LOCATION_ACCURACY_METERS) {
+        setFormError('Current GPS accuracy is too low to verify this update. Move to open sky and try again.')
         return
       }
 
@@ -631,12 +882,14 @@ export default function Hazards() {
       try {
         const imageUrl = await uploadImageToImageKit()
         const payload = {
+          status: formData.status,
           comment: communityComment,
           imageUrl,
           location: {
             type: 'Point',
             coordinates: [longitude, latitude],
           },
+          locationAccuracyMeters: normalizedAccuracyMeters,
         }
 
         await api.put(`/hazards/${editingHazardId}`, payload)
@@ -768,7 +1021,19 @@ export default function Hazards() {
             const latestUpdate = recentUpdates[0]
 
             return (
-            <div key={hazard._id} className="card card-col">
+            <div
+              key={hazard._id}
+              className="card card-col hazard-card-clickable"
+              role="button"
+              tabIndex={0}
+              onClick={() => openHazardDetailsModal(hazard)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  openHazardDetailsModal(hazard)
+                }
+              }}
+            >
               <div className="card-body card-body-grow">
                 {hazard.imageUrl && (
                   <div className="hazard-card-image-wrap">
@@ -832,7 +1097,10 @@ export default function Hazards() {
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    onClick={() => openUpdateModal(hazard)}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      openUpdateModal(hazard)
+                    }}
                   >
                     Add Update
                   </button>
@@ -851,18 +1119,164 @@ export default function Hazards() {
         </div>
       )}
 
+      {selectedHazardDetails && (
+        <div className="modal-backdrop" onClick={closeHazardDetailsModal}>
+          <div className="modal-card hazard-details-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Hazard Roadmap</h3>
+              <button className="btn btn-ghost btn-sm" onClick={closeHazardDetailsModal}>Close</button>
+            </div>
+
+            {formError ? <p className="form-error">{formError}</p> : null}
+
+            <div className="hazard-details-grid">
+              <section className="hazard-details-section">
+                <h4>{selectedHazardDetails?.title || 'Hazard details'}</h4>
+
+                {selectedHazardDetails?.imageUrl ? (
+                  <div className="hazard-history-item">
+                    <img
+                      className="hazard-history-image"
+                      src={selectedHazardDetails.imageUrl}
+                      alt={selectedHazardDetails?.title || 'Hazard image'}
+                    />
+                  </div>
+                ) : (
+                  <p className="hazard-popup-no-image">No image uploaded yet.</p>
+                )}
+
+                <p className="card-desc">{selectedHazardDetails?.description || 'No description provided.'}</p>
+
+                <div className="card-meta">
+                  <span className="meta-row">Type: {selectedHazardDetails?.type || 'other'}</span>
+                  <span className="meta-row">Severity: {selectedHazardDetails?.severity || 'medium'}</span>
+                  <span className="meta-row">Current Status: {selectedHazardDetails?.status || 'reported'}</span>
+                  <span className="meta-row">Reported: {formatDateTime(selectedHazardDetails?.createdAt)}</span>
+                  <span className="meta-row">Last Updated: {formatDateTime(selectedHazardDetails?.updatedAt || selectedHazardDetails?.createdAt)}</span>
+                </div>
+              </section>
+
+              <section className="hazard-details-section">
+                <h4>Previous Updates</h4>
+
+                {selectedHazardUpdates.length === 0 ? (
+                  <div className="hazard-comment-item">
+                    <p>No community updates available yet.</p>
+                  </div>
+                ) : (
+                  <div className="hazard-comment-list">
+                    {selectedHazardUpdates.map((update, index) => (
+                      <article className="hazard-comment-item" key={update?._id || `${update?.createdAt || 'update'}-${index}`}>
+                        <div className="hazard-comment-head">
+                          <strong>{getUserDisplayName(update?.user)}</strong>
+                          <span>{formatDateTime(update?.createdAt)}</span>
+                        </div>
+
+                        <div className="hazard-comment-meta-list">
+                          {update?.status ? (
+                            <span className="hazard-time-badge">Status: {update.status}</span>
+                          ) : null}
+
+                          {typeof update?.user?.email === 'string' && update.user.email.trim() ? (
+                            <span className="hazard-time-badge">User: {update.user.email.trim()}</span>
+                          ) : null}
+                        </div>
+
+                        <p className="hazard-comment-caption">Update Comment</p>
+                        <p>{update?.comment || 'No update comment provided.'}</p>
+
+                        <p className="hazard-comment-caption">Uploaded Image</p>
+
+                        {update?.imageUrl ? (
+                          <img
+                            className="hazard-history-image"
+                            src={update.imageUrl}
+                            alt="Hazard update"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <p className="hazard-popup-no-image">No image uploaded in this update.</p>
+                        )}
+
+                        {(() => {
+                          const hazardOwnerId = getHazardOwnerId(selectedHazardDetails)
+                          const updateOwnerId = getHazardUpdateUserId(update)
+                          const canManageUpdate = Boolean(
+                            currentUserId
+                            && (currentUserId === updateOwnerId || currentUserId === hazardOwnerId)
+                          )
+
+                          if (!canManageUpdate) {
+                            return null
+                          }
+
+                          return (
+                            <div className="hazard-comment-actions">
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => openEditCommunityUpdateModal(selectedHazardDetails, update)}
+                              >
+                                Edit Update
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => handleDeleteCommunityUpdate(selectedHazardDetails, update)}
+                                disabled={deletingUpdateId === getHazardUpdateId(update)}
+                              >
+                                {deletingUpdateId === getHazardUpdateId(update) ? 'Deleting...' : 'Delete Update'}
+                              </button>
+                            </div>
+                          )
+                        })()}
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isModalOpen && (
         <div className="modal-backdrop" onClick={closeReportModal}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h3>{isStatusUpdateMode ? 'Add Hazard Update' : 'Report Hazard'}</h3>
+              <h3>
+                {isStatusUpdateMode
+                  ? editingCommunityUpdateId
+                    ? 'Edit Hazard Update'
+                    : 'Add Hazard Update'
+                  : 'Report Hazard'}
+              </h3>
               <button className="btn btn-ghost btn-sm" onClick={closeReportModal}>Close</button>
             </div>
 
             <form className="modal-form" onSubmit={submitHazard}>
               {isStatusUpdateMode ? (
                 <>
-                  <p className="card-desc">Add a current image and a situation comment for this hazard. New updates appear first.</p>
+                  <p className="card-desc">
+                    {editingCommunityUpdateId
+                      ? 'Edit the current image, status, and comment for this update entry.'
+                      : 'Add a current image and a situation comment for this hazard. New updates appear first.'}
+                  </p>
+
+                  <div>
+                    <label htmlFor="status">Current Hazard Status</label>
+                    <select
+                      id="status"
+                      name="status"
+                      className="input"
+                      value={formData.status}
+                      onChange={onFormChange}
+                    >
+                      <option value="reported">Reported</option>
+                      <option value="pending">Pending</option>
+                      <option value="resolved">Resolved</option>
+                    </select>
+                  </div>
 
                   <div>
                     <label htmlFor="communityComment">Current Situation Comment</label>
@@ -878,30 +1292,35 @@ export default function Hazards() {
                     />
                   </div>
 
-                  <div className="location-panel">
-                    <div>
-                      <label>Your Current Location (required)</label>
-                      <div className="location-readout">
-                        <IconLocation />
-                        {currentLocation.loading
-                          ? 'Detecting current location...'
-                          : currentLocation.resolvingName
-                            ? 'Resolving location name...'
-                            : currentLocation.name || 'Location not detected yet'}
+                  {!editingCommunityUpdateId ? (
+                    <>
+                      <div className="location-panel">
+                        <div>
+                          <label>Your Current Location (required)</label>
+                          <div className="location-readout">
+                            <IconLocation />
+                            {currentLocation.loading
+                              ? 'Detecting current location...'
+                              : currentLocation.resolvingName
+                                ? 'Resolving location name...'
+                                : currentLocation.name || 'Location not detected yet'}
+                          </div>
+                          <div className="location-coordinates">{currentCoordinatesText}</div>
+                          <div className="location-coordinates">{currentLocationAccuracyText}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={detectCurrentLocation}
+                          disabled={currentLocation.loading || submitting}
+                        >
+                          {currentLocation.loading ? 'Detecting...' : 'Use My Location'}
+                        </button>
                       </div>
-                      <div className="location-coordinates">{currentCoordinatesText}</div>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={detectCurrentLocation}
-                      disabled={currentLocation.loading || submitting}
-                    >
-                      {currentLocation.loading ? 'Detecting...' : 'Use My Location'}
-                    </button>
-                  </div>
 
-                  {currentLocation.error && <p className="form-error">{currentLocation.error}</p>}
+                      {currentLocation.error && <p className="form-error">{currentLocation.error}</p>}
+                    </>
+                  ) : null}
                 </>
               ) : (
                 <>
@@ -963,6 +1382,7 @@ export default function Hazards() {
                             : currentLocation.name || 'Location not detected yet'}
                       </div>
                       <div className="location-coordinates">{currentCoordinatesText}</div>
+                      <div className="location-coordinates">{currentLocationAccuracyText}</div>
                     </div>
                     <button
                       type="button"
@@ -979,7 +1399,13 @@ export default function Hazards() {
               )}
 
               <div>
-                <label htmlFor="hazardImage">{isStatusUpdateMode ? 'Current Hazard Image (required)' : 'Hazard Image (Live camera or gallery)'}</label>
+                <label htmlFor="hazardImage">
+                  {isStatusUpdateMode
+                    ? editingCommunityUpdateId
+                      ? 'Current Hazard Image (optional - upload to replace existing image)'
+                      : 'Current Hazard Image (required)'
+                    : 'Hazard Image (Live camera or gallery)'}
+                </label>
                 <div className="camera-actions">
                   <button
                     type="button"
@@ -1035,6 +1461,26 @@ export default function Hazards() {
                     <img src={imagePreviewUrl} alt="Hazard preview" className="hazard-image-preview" />
                   </div>
                 )}
+
+                {!imagePreviewUrl && isStatusUpdateMode && editingCommunityUpdateId && editingCommunityUpdateImageUrl && (
+                  <>
+                    <div className="hazard-image-preview-wrap">
+                      <img src={editingCommunityUpdateImageUrl} alt="Current hazard update" className="hazard-image-preview" />
+                    </div>
+                    <p className="hazard-image-caption">Current image in this update entry.</p>
+                  </>
+                )}
+
+                {!imagePreviewUrl && isStatusUpdateMode && editingCommunityUpdateId && previousCommunityUpdateImageUrl && (
+                  <>
+                    <div className="hazard-image-preview-wrap">
+                      <img src={previousCommunityUpdateImageUrl} alt="Previous hazard update" className="hazard-image-preview" />
+                    </div>
+                    <p className="hazard-image-caption">
+                      Previous image before this update{previousCommunityUpdateTime ? ` (${formatDateTime(previousCommunityUpdateTime)})` : ''}.
+                    </p>
+                  </>
+                )}
               </div>
 
               {formError && <p className="form-error">{formError}</p>}
@@ -1044,7 +1490,15 @@ export default function Hazards() {
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={submitting}>
-                    {submitting ? 'Saving Hazard...' : isStatusUpdateMode ? 'Post Update' : isOwnerEditMode ? 'Save Changes' : 'Submit Report'}
+                    {submitting
+                      ? 'Saving Hazard...'
+                      : isStatusUpdateMode
+                        ? editingCommunityUpdateId
+                          ? 'Save Update'
+                          : 'Post Update'
+                        : isOwnerEditMode
+                          ? 'Save Changes'
+                          : 'Submit Report'}
                 </button>
               </div>
             </form>

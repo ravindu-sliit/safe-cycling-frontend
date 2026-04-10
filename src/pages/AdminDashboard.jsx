@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -98,9 +98,15 @@ const DEFAULT_HAZARD_FORM = {
   imageUrl: '',
 }
 
+const MAX_HAZARD_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024
+
 function normalizeRoleValue(value) {
   const role = String(value || 'user').toLowerCase()
   return role === 'organisation' ? 'organization' : role
+}
+
+function supportsCyclingStyle(role) {
+  return normalizeRoleValue(role) === 'user'
 }
 
 function getCyclingStyleLabel(value) {
@@ -303,24 +309,9 @@ function IconGrid() {
   )
 }
 
-function IconProfile() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </svg>
-  )
-}
-
 export default function AdminDashboard() {
   const navigate = useNavigate()
   const { logout, updateUser, user: currentUser } = useAuth()
-  const overviewSectionRef = useRef(null)
-  const managementSectionRef = useRef(null)
-  const hazardsSectionRef = useRef(null)
-  const routesSectionRef = useRef(null)
-  const reviewsSectionRef = useRef(null)
-  const profileSectionRef = useRef(null)
   const [users, setUsers] = useState([])
   const [hazards, setHazards] = useState([])
   const [routes, setRoutes] = useState([])
@@ -344,6 +335,8 @@ export default function AdminDashboard() {
   const [hazardEditorMode, setHazardEditorMode] = useState('')
   const [editingHazardId, setEditingHazardId] = useState('')
   const [hazardForm, setHazardForm] = useState(DEFAULT_HAZARD_FORM)
+  const [hazardImageFile, setHazardImageFile] = useState(null)
+  const [isHazardImageUploading, setIsHazardImageUploading] = useState(false)
   const [isHazardSubmitting, setIsHazardSubmitting] = useState(false)
   const [routeEditorMode, setRouteEditorMode] = useState('')
   const [editingRouteId, setEditingRouteId] = useState('')
@@ -358,33 +351,40 @@ export default function AdminDashboard() {
     navigate('/login', { replace: true })
   }
 
+  const handleManageProfile = () => {
+    navigate('/admin/profile')
+  }
+
   const resetEditor = () => {
     setEditorMode('')
     setEditingUserId('')
     setForm(DEFAULT_USER_FORM)
   }
 
-  const scrollToSection = (sectionId) => {
-    const refsBySection = {
-      overview: overviewSectionRef,
-      users: managementSectionRef,
-      hazards: hazardsSectionRef,
-      routes: routesSectionRef,
-      reviews: reviewsSectionRef,
-      profile: profileSectionRef,
-    }
-
-    const sectionRef = refsBySection[sectionId] || overviewSectionRef
+  const handleAdminSectionChange = (sectionId) => {
     setActiveAdminSection(sectionId)
-    sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const handleFormChange = (event) => {
     const { name, value, type, checked } = event.target
-    setForm((current) => ({
-      ...current,
-      [name]: type === 'checkbox' ? checked : value,
-    }))
+    setForm((current) => {
+      const nextValue = type === 'checkbox' ? checked : value
+
+      if (name === 'role') {
+        return {
+          ...current,
+          role: nextValue,
+          cyclingStyle: supportsCyclingStyle(nextValue)
+            ? (current.cyclingStyle || 'commuter')
+            : '',
+        }
+      }
+
+      return {
+        ...current,
+        [name]: nextValue,
+      }
+    })
   }
 
   const handleCreateStart = () => {
@@ -393,7 +393,7 @@ export default function AdminDashboard() {
     setForm(DEFAULT_USER_FORM)
     setEditingUserId('')
     setEditorMode('create')
-    scrollToSection('users')
+    handleAdminSectionChange('users')
   }
 
   const handleEditStart = (user) => {
@@ -405,11 +405,11 @@ export default function AdminDashboard() {
       email: user.email || '',
       password: '',
       role: normalizeRoleValue(user.role),
-      cyclingStyle: user.cyclingStyle || 'commuter',
+      cyclingStyle: supportsCyclingStyle(user.role) ? (user.cyclingStyle || 'commuter') : '',
       isVerified: Boolean(user.isVerified),
     })
     setEditorMode('edit')
-    scrollToSection('users')
+    handleAdminSectionChange('users')
   }
 
   const handleCancelEditor = () => {
@@ -428,15 +428,18 @@ export default function AdminDashboard() {
     setHazardEditorMode('')
     setEditingHazardId('')
     setHazardForm(DEFAULT_HAZARD_FORM)
+    setHazardImageFile(null)
+    setIsHazardImageUploading(false)
   }
 
   const handleCreateHazardStart = () => {
     setError('')
     setSuccessMessage('')
     setHazardForm(DEFAULT_HAZARD_FORM)
+    setHazardImageFile(null)
     setEditingHazardId('')
     setHazardEditorMode('create')
-    scrollToSection('hazards')
+    handleAdminSectionChange('hazards')
   }
 
   const handleEditHazardStart = (hazard) => {
@@ -444,8 +447,9 @@ export default function AdminDashboard() {
     setSuccessMessage('')
     setEditingHazardId(getHazardId(hazard))
     setHazardForm(buildHazardFormFromHazard(hazard))
+    setHazardImageFile(null)
     setHazardEditorMode('edit')
-    scrollToSection('hazards')
+    handleAdminSectionChange('hazards')
   }
 
   const handleHazardFormChange = (event) => {
@@ -456,10 +460,95 @@ export default function AdminDashboard() {
     }))
   }
 
+  const handleHazardImageFileChange = (event) => {
+    const nextFile = event.target.files?.[0] || null
+
+    if (!nextFile) {
+      setHazardImageFile(null)
+      return
+    }
+
+    if (!nextFile.type.startsWith('image/')) {
+      setError('Only image files are allowed for hazard uploads.')
+      setHazardImageFile(null)
+      event.target.value = ''
+      return
+    }
+
+    if (nextFile.size > MAX_HAZARD_IMAGE_UPLOAD_BYTES) {
+      setError('Image size must be 5MB or less.')
+      setHazardImageFile(null)
+      event.target.value = ''
+      return
+    }
+
+    setError('')
+    setHazardImageFile(nextFile)
+  }
+
+  const uploadHazardImage = async (file, { showSuccessMessage = true } = {}) => {
+    if (!file) {
+      throw new Error('Please select an image before uploading.')
+    }
+
+    const multipartPayload = new FormData()
+    multipartPayload.append('image', file)
+
+    setIsHazardImageUploading(true)
+
+    try {
+      const response = await api.post('/hazards/upload-image', multipartPayload)
+      const uploadedUrl = String(response?.data?.url || '').trim()
+
+      if (!uploadedUrl) {
+        throw new Error('Image upload succeeded but no image URL was returned.')
+      }
+
+      setHazardForm((current) => ({
+        ...current,
+        imageUrl: uploadedUrl,
+      }))
+      setHazardImageFile(null)
+
+      if (showSuccessMessage) {
+        setSuccessMessage('Hazard image uploaded successfully.')
+      }
+
+      return uploadedUrl
+    } catch (requestError) {
+      const message = extractErrorMessage(requestError, 'Unable to upload hazard image right now.')
+      setError(message)
+      throw requestError
+    } finally {
+      setIsHazardImageUploading(false)
+    }
+  }
+
+  const handleHazardImageUpload = async () => {
+    setError('')
+    setSuccessMessage('')
+
+    try {
+      await uploadHazardImage(hazardImageFile)
+    } catch {
+      // Error state is already handled in uploadHazardImage.
+    }
+  }
+
   const handleHazardCancelEditor = () => {
     setError('')
     setSuccessMessage('')
     resetHazardEditor()
+  }
+
+  const isHazardModalBusy = isHazardSubmitting || isHazardImageUploading
+
+  const handleHazardModalBackdropClick = (event) => {
+    if (event.target !== event.currentTarget || isHazardModalBusy) {
+      return
+    }
+
+    handleHazardCancelEditor()
   }
 
   const handleEditRouteStart = (route) => {
@@ -481,7 +570,7 @@ export default function AdminDashboard() {
       endAddress: endLocation.address,
     })
     setRouteEditorMode('edit')
-    scrollToSection('routes')
+    handleAdminSectionChange('routes')
   }
 
   const handleRouteFormChange = (event) => {
@@ -571,6 +660,24 @@ export default function AdminDashboard() {
     }
   }, [currentUser, currentUserId])
 
+  useEffect(() => {
+    if (!hazardEditorMode) return undefined
+
+    const handleEscapeClose = (event) => {
+      if (event.key !== 'Escape' || isHazardModalBusy) {
+        return
+      }
+
+      handleHazardCancelEditor()
+    }
+
+    window.addEventListener('keydown', handleEscapeClose)
+
+    return () => {
+      window.removeEventListener('keydown', handleEscapeClose)
+    }
+  }, [hazardEditorMode, isHazardModalBusy])
+
   const filteredUsers = users.filter((user) => {
     const userRole = normalizeRoleValue(user.role)
     const matchesRole =
@@ -582,7 +689,7 @@ export default function AdminDashboard() {
       user.name,
       user.email,
       getRoleLabel(userRole),
-      getCyclingStyleLabel(user.cyclingStyle),
+      supportsCyclingStyle(userRole) ? getCyclingStyleLabel(user.cyclingStyle) : '',
       user.isVerified ? 'verified' : 'not verified',
     ]
       .filter(Boolean)
@@ -628,8 +735,11 @@ export default function AdminDashboard() {
         name: form.name.trim(),
         email: form.email.trim(),
         role: normalizeRoleValue(form.role),
-        cyclingStyle: form.cyclingStyle,
         isVerified: Boolean(form.isVerified),
+      }
+
+      if (supportsCyclingStyle(form.role)) {
+        payload.cyclingStyle = form.cyclingStyle
       }
 
       if (form.password.trim()) {
@@ -654,7 +764,7 @@ export default function AdminDashboard() {
             id: getUserId(refreshedCurrentUser),
             name: refreshedCurrentUser.name || '',
             email: refreshedCurrentUser.email || '',
-            cyclingStyle: refreshedCurrentUser.cyclingStyle || 'commuter',
+            cyclingStyle: supportsCyclingStyle(refreshedCurrentUser.role) ? (refreshedCurrentUser.cyclingStyle || 'commuter') : '',
             role: normalizeRoleValue(refreshedCurrentUser.role),
           })
         }
@@ -797,6 +907,11 @@ export default function AdminDashboard() {
     setIsHazardSubmitting(true)
 
     try {
+      let imageUrl = hazardForm.imageUrl.trim()
+      if (hazardImageFile) {
+        imageUrl = await uploadHazardImage(hazardImageFile, { showSuccessMessage: false })
+      }
+
       const payload = {
         title: hazardForm.title.trim(),
         description: hazardForm.description.trim(),
@@ -804,7 +919,7 @@ export default function AdminDashboard() {
         severity: hazardForm.severity,
         status: hazardForm.status,
         locationName: hazardForm.locationName.trim(),
-        imageUrl: hazardForm.imageUrl.trim(),
+        imageUrl,
         location: {
           type: 'Point',
           coordinates: [longitude, latitude],
@@ -954,7 +1069,7 @@ export default function AdminDashboard() {
       note: 'Platform totals and operational snapshot.',
       badge: `${overviewCards.length} tiles`,
       Icon: IconGrid,
-      onClick: () => scrollToSection('overview'),
+      onClick: () => handleAdminSectionChange('overview'),
       isActive: activeAdminSection === 'overview',
     },
     {
@@ -963,7 +1078,7 @@ export default function AdminDashboard() {
       note: 'Create, edit, verify, and delete accounts.',
       badge: `${totalUsers} users`,
       Icon: IconUsers,
-      onClick: () => scrollToSection('users'),
+      onClick: () => handleAdminSectionChange('users'),
       isActive: activeAdminSection === 'users',
     },
     {
@@ -972,7 +1087,7 @@ export default function AdminDashboard() {
       note: 'Review live hazard reports from the backend.',
       badge: `${activeHazards} active`,
       Icon: IconAlert,
-      onClick: () => scrollToSection('hazards'),
+      onClick: () => handleAdminSectionChange('hazards'),
       isActive: activeAdminSection === 'hazards',
     },
     {
@@ -981,7 +1096,7 @@ export default function AdminDashboard() {
       note: 'Browse stored route records and eco scores.',
       badge: `${routes.length} routes`,
       Icon: IconRoute,
-      onClick: () => scrollToSection('routes'),
+      onClick: () => handleAdminSectionChange('routes'),
       isActive: activeAdminSection === 'routes',
     },
     {
@@ -999,19 +1114,12 @@ export default function AdminDashboard() {
       note: 'Inspect admin-wide route feedback records.',
       badge: `${reviews.length} reviews`,
       Icon: IconReview,
-      onClick: () => scrollToSection('reviews'),
+      onClick: () => handleAdminSectionChange('reviews'),
       isActive: activeAdminSection === 'reviews',
     },
-    {
-      id: 'profile',
-      label: 'Admin Profile',
-      note: 'See the signed-in admin account snapshot.',
-      badge: getRoleLabel(adminProfile?.role || currentUser?.role || 'admin'),
-      Icon: IconProfile,
-      onClick: () => scrollToSection('profile'),
-      isActive: activeAdminSection === 'profile',
-    },
   ]
+
+  const activeSidebarLink = adminSidebarLinks.find((item) => item.id === activeAdminSection)
 
   return (
     <section className="admin-dashboard-page">
@@ -1020,7 +1128,7 @@ export default function AdminDashboard() {
           <div className="admin-sidebar-card">
             <div className="admin-sidebar-nav-header">
               <span className="admin-sidebar-nav-title">Workspace Navigation</span>
-              <span className="admin-sidebar-nav-caption">Jump inside</span>
+              <span className="admin-sidebar-nav-caption">Single panel mode</span>
             </div>
 
             <div className="admin-sidebar-nav-list">
@@ -1042,6 +1150,11 @@ export default function AdminDashboard() {
                 </button>
               ))}
             </div>
+
+            <div className="admin-sidebar-active-panel">
+              <span className="admin-sidebar-active-label">Active Panel</span>
+              <strong className="admin-sidebar-active-value">{activeSidebarLink?.label || 'Overview'}</strong>
+            </div>
           </div>
         </aside>
 
@@ -1056,6 +1169,9 @@ export default function AdminDashboard() {
                 <span>{totalUsers} users loaded</span>
                 <span>{formatDate(new Date().toISOString())}</span>
               </div>
+              <button type="button" className="admin-secondary-button" onClick={handleManageProfile}>
+                Manage Profile
+              </button>
               <button type="button" className="admin-dashboard-logout" onClick={handleLogout}>
                 Log Out
               </button>
@@ -1068,7 +1184,20 @@ export default function AdminDashboard() {
             </div>
           ) : null}
 
-          <div ref={overviewSectionRef} className="admin-section-block">
+          {error ? (
+            <div className="admin-table-message admin-table-message-error">
+              {error}
+            </div>
+          ) : null}
+
+          {successMessage ? (
+            <div className="admin-table-message admin-table-message-success">
+              {successMessage}
+            </div>
+          ) : null}
+
+          {activeAdminSection === 'overview' ? (
+          <div className="admin-section-block">
             <div className="admin-section-heading">
               <span className="admin-section-kicker">Overview</span>
               <h2>Operational snapshot</h2>
@@ -1087,8 +1216,10 @@ export default function AdminDashboard() {
               ))}
             </div>
           </div>
+          ) : null}
 
-          <div ref={managementSectionRef} className="admin-management-panel">
+          {activeAdminSection === 'users' ? (
+          <div className="admin-management-panel">
             <div className="admin-management-header">
               <div>
                 <h2>User Management</h2>
@@ -1126,14 +1257,6 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </div>
-
-            {error ? (
-              <div className="admin-table-message admin-table-message-error">{error}</div>
-            ) : null}
-
-            {successMessage ? (
-              <div className="admin-table-message admin-table-message-success">{successMessage}</div>
-            ) : null}
 
             {editorMode ? (
               <div className="admin-editor-panel">
@@ -1204,21 +1327,23 @@ export default function AdminDashboard() {
                     </select>
                   </label>
 
-                  <label className="admin-editor-field">
-                    <span>Cycling Style</span>
-                    <select
-                      name="cyclingStyle"
-                      className="admin-editor-input admin-filter-select"
-                      value={form.cyclingStyle}
-                      onChange={handleFormChange}
-                    >
-                      {Object.entries(CYCLING_STYLE_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {supportsCyclingStyle(form.role) ? (
+                    <label className="admin-editor-field">
+                      <span>Cycling Style</span>
+                      <select
+                        name="cyclingStyle"
+                        className="admin-editor-input admin-filter-select"
+                        value={form.cyclingStyle}
+                        onChange={handleFormChange}
+                      >
+                        {Object.entries(CYCLING_STYLE_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
 
                   <label className="admin-editor-field admin-editor-check">
                     <span>Verification</span>
@@ -1300,7 +1425,7 @@ export default function AdminDashboard() {
                             {getRoleLabel(String(user.role || 'user'))}
                           </span>
                         </td>
-                        <td>{getCyclingStyleLabel(user.cyclingStyle)}</td>
+                        <td>{supportsCyclingStyle(user.role) ? getCyclingStyleLabel(user.cyclingStyle) : 'Not applicable'}</td>
                         <td>
                           <span className={`admin-pill ${user.isVerified ? 'admin-pill-verified' : 'admin-pill-pending'}`}>
                             {user.isVerified ? 'Verified' : 'Not verified'}
@@ -1333,8 +1458,10 @@ export default function AdminDashboard() {
               </table>
             </div>
           </div>
+          ) : null}
 
-          <div ref={hazardsSectionRef} className="admin-management-panel">
+          {activeAdminSection === 'hazards' ? (
+          <div className="admin-management-panel">
             <div className="admin-management-header">
               <div>
                 <h2>Hazard Reports</h2>
@@ -1351,163 +1478,6 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </div>
-
-            {hazardEditorMode ? (
-              <div className="admin-editor-panel">
-                <div className="admin-editor-header">
-                  <div>
-                    <h3 className="admin-editor-title">
-                      {hazardEditorMode === 'create' ? 'Add Hazard' : 'Edit Hazard'}
-                    </h3>
-                    <p className="admin-editor-subtitle">
-                      Create a hazard manually or update its longitude and latitude coordinates.
-                    </p>
-                  </div>
-                </div>
-
-                <form className="admin-editor-form" onSubmit={handleHazardSubmit}>
-                  <label className="admin-editor-field admin-editor-field-full">
-                    <span>Title</span>
-                    <input
-                      type="text"
-                      name="title"
-                      className="admin-editor-input"
-                      value={hazardForm.title}
-                      onChange={handleHazardFormChange}
-                      placeholder="Pothole near bridge entrance"
-                      required
-                    />
-                  </label>
-
-                  <label className="admin-editor-field admin-editor-field-full">
-                    <span>Description</span>
-                    <textarea
-                      name="description"
-                      className="admin-editor-input admin-editor-textarea"
-                      value={hazardForm.description}
-                      onChange={handleHazardFormChange}
-                      placeholder="Describe the hazard details"
-                      rows={4}
-                      required
-                    />
-                  </label>
-
-                  <label className="admin-editor-field">
-                    <span>Type</span>
-                    <select
-                      name="type"
-                      className="admin-editor-input admin-filter-select"
-                      value={hazardForm.type}
-                      onChange={handleHazardFormChange}
-                    >
-                      {HAZARD_TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="admin-editor-field">
-                    <span>Severity</span>
-                    <select
-                      name="severity"
-                      className="admin-editor-input admin-filter-select"
-                      value={hazardForm.severity}
-                      onChange={handleHazardFormChange}
-                    >
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                    </select>
-                  </label>
-
-                  <label className="admin-editor-field">
-                    <span>Status</span>
-                    <select
-                      name="status"
-                      className="admin-editor-input admin-filter-select"
-                      value={hazardForm.status}
-                      onChange={handleHazardFormChange}
-                    >
-                      <option value="reported">Reported</option>
-                      <option value="pending">Pending</option>
-                      <option value="resolved">Resolved</option>
-                    </select>
-                  </label>
-
-                  <label className="admin-editor-field">
-                    <span>Location Name</span>
-                    <input
-                      type="text"
-                      name="locationName"
-                      className="admin-editor-input"
-                      value={hazardForm.locationName}
-                      onChange={handleHazardFormChange}
-                      placeholder="Street, city, or landmark"
-                    />
-                  </label>
-
-                  <label className="admin-editor-field">
-                    <span>Longitude</span>
-                    <input
-                      type="number"
-                      name="longitude"
-                      className="admin-editor-input"
-                      value={hazardForm.longitude}
-                      onChange={handleHazardFormChange}
-                      step="any"
-                      placeholder="79.8612"
-                      required
-                    />
-                  </label>
-
-                  <label className="admin-editor-field">
-                    <span>Latitude</span>
-                    <input
-                      type="number"
-                      name="latitude"
-                      className="admin-editor-input"
-                      value={hazardForm.latitude}
-                      onChange={handleHazardFormChange}
-                      step="any"
-                      placeholder="6.9271"
-                      required
-                    />
-                  </label>
-
-                  <label className="admin-editor-field admin-editor-field-full">
-                    <span>Image URL (optional)</span>
-                    <input
-                      type="url"
-                      name="imageUrl"
-                      className="admin-editor-input"
-                      value={hazardForm.imageUrl}
-                      onChange={handleHazardFormChange}
-                      placeholder="https://ik.imagekit.io/..."
-                    />
-                  </label>
-
-                  <div className="admin-editor-actions">
-                    <button type="submit" className="admin-primary-button" disabled={isHazardSubmitting}>
-                      {isHazardSubmitting
-                        ? hazardEditorMode === 'create'
-                          ? 'Creating...'
-                          : 'Saving...'
-                        : hazardEditorMode === 'create'
-                          ? 'Create Hazard'
-                          : 'Save Changes'}
-                    </button>
-                    <button
-                      type="button"
-                      className="admin-secondary-button"
-                      onClick={handleHazardCancelEditor}
-                      disabled={isHazardSubmitting}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              </div>
-            ) : null}
 
             <div className="admin-table-wrap">
               <table className="admin-user-table">
@@ -1590,8 +1560,10 @@ export default function AdminDashboard() {
               </table>
             </div>
           </div>
+          ) : null}
 
-          <div ref={routesSectionRef} className="admin-management-panel">
+          {activeAdminSection === 'routes' ? (
+          <div className="admin-management-panel">
             <div className="admin-management-header">
               <div>
                 <h2>Routes Database</h2>
@@ -1688,8 +1660,9 @@ export default function AdminDashboard() {
               </table>
             </div>
           </div>
+          ) : null}
 
-          {routeEditorMode ? (
+          {activeAdminSection === 'routes' && routeEditorMode ? (
             <div className="admin-editor-panel">
               <div className="admin-editor-header">
                 <div>
@@ -1824,7 +1797,8 @@ export default function AdminDashboard() {
             </div>
           ) : null}
 
-          <div ref={reviewsSectionRef} className="admin-management-panel">
+          {activeAdminSection === 'reviews' ? (
+          <div className="admin-management-panel">
             <div className="admin-management-header">
               <div>
                 <h2>Reviews Database</h2>
@@ -1897,12 +1871,14 @@ export default function AdminDashboard() {
               </table>
             </div>
           </div>
+          ) : null}
 
-          <div ref={profileSectionRef} className="admin-management-panel">
+          {activeAdminSection === 'profile' ? (
+          <div className="admin-management-panel">
             <div className="admin-management-header">
               <div>
                 <h2>Admin Profile Snapshot</h2>
-                <p>The signed-in admin account details loaded directly from the backend database.</p>
+                <p>The signed-in admin account details loaded directly from the backend database, with a shortcut to full profile management.</p>
               </div>
               <div className="admin-data-summary-row">
                 <span className="admin-data-summary-pill">{getRoleLabel(adminProfile?.role || 'admin')}</span>
@@ -1928,15 +1904,228 @@ export default function AdminDashboard() {
                 <strong className="admin-profile-value">{adminProfile?.isVerified ? 'Verified account' : 'Awaiting verification'}</strong>
               </article>
               <article className="admin-profile-card">
-                <span className="admin-profile-label">Cycling Style</span>
-                <strong className="admin-profile-value">{getCyclingStyleLabel(adminProfile?.cyclingStyle)}</strong>
-              </article>
-              <article className="admin-profile-card">
                 <span className="admin-profile-label">Joined Date</span>
                 <strong className="admin-profile-value">{formatDate(adminProfile?.createdAt)}</strong>
               </article>
             </div>
+
+            <div className="admin-editor-actions">
+              <button type="button" className="admin-primary-button" onClick={handleManageProfile}>
+                Open Account Settings
+              </button>
+              <button type="button" className="admin-secondary-button" onClick={() => handleAdminSectionChange('overview')}>
+                Back to Overview
+              </button>
+            </div>
           </div>
+          ) : null}
+
+          {hazardEditorMode ? (
+            <div className="admin-hazard-modal-backdrop" onClick={handleHazardModalBackdropClick}>
+              <div className="admin-hazard-modal" role="dialog" aria-modal="true" aria-labelledby="admin-hazard-modal-title">
+                <div className="admin-hazard-modal-header">
+                  <div>
+                    <h3 id="admin-hazard-modal-title" className="admin-editor-title">
+                      {hazardEditorMode === 'create' ? 'Add Hazard' : 'Edit Hazard'}
+                    </h3>
+                    <p className="admin-editor-subtitle">
+                      Create a hazard manually or update its longitude and latitude coordinates.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="admin-hazard-modal-close"
+                    onClick={handleHazardCancelEditor}
+                    disabled={isHazardModalBusy}
+                    aria-label="Close hazard form"
+                  >
+                    x
+                  </button>
+                </div>
+
+                <form className="admin-editor-form admin-hazard-editor-form" onSubmit={handleHazardSubmit}>
+                  <label className="admin-editor-field admin-editor-field-full">
+                    <span>Title</span>
+                    <input
+                      type="text"
+                      name="title"
+                      className="admin-editor-input"
+                      value={hazardForm.title}
+                      onChange={handleHazardFormChange}
+                      placeholder="Pothole near bridge entrance"
+                      required
+                    />
+                  </label>
+
+                  <label className="admin-editor-field admin-editor-field-full">
+                    <span>Description</span>
+                    <textarea
+                      name="description"
+                      className="admin-editor-input admin-editor-textarea"
+                      value={hazardForm.description}
+                      onChange={handleHazardFormChange}
+                      placeholder="Describe the hazard details"
+                      rows={4}
+                      required
+                    />
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Type</span>
+                    <select
+                      name="type"
+                      className="admin-editor-input admin-filter-select"
+                      value={hazardForm.type}
+                      onChange={handleHazardFormChange}
+                    >
+                      {HAZARD_TYPE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Severity</span>
+                    <select
+                      name="severity"
+                      className="admin-editor-input admin-filter-select"
+                      value={hazardForm.severity}
+                      onChange={handleHazardFormChange}
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Status</span>
+                    <select
+                      name="status"
+                      className="admin-editor-input admin-filter-select"
+                      value={hazardForm.status}
+                      onChange={handleHazardFormChange}
+                    >
+                      <option value="reported">Reported</option>
+                      <option value="pending">Pending</option>
+                      <option value="resolved">Resolved</option>
+                    </select>
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Location Name</span>
+                    <input
+                      type="text"
+                      name="locationName"
+                      className="admin-editor-input"
+                      value={hazardForm.locationName}
+                      onChange={handleHazardFormChange}
+                      placeholder="Street, city, or landmark"
+                    />
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Longitude</span>
+                    <input
+                      type="number"
+                      name="longitude"
+                      className="admin-editor-input"
+                      value={hazardForm.longitude}
+                      onChange={handleHazardFormChange}
+                      step="any"
+                      placeholder="79.8612"
+                      required
+                    />
+                  </label>
+
+                  <label className="admin-editor-field">
+                    <span>Latitude</span>
+                    <input
+                      type="number"
+                      name="latitude"
+                      className="admin-editor-input"
+                      value={hazardForm.latitude}
+                      onChange={handleHazardFormChange}
+                      step="any"
+                      placeholder="6.9271"
+                      required
+                    />
+                  </label>
+
+                  <label className="admin-editor-field admin-editor-field-full">
+                    <span>Upload Image (optional)</span>
+                    <input
+                      type="file"
+                      className="admin-editor-input admin-editor-file-input"
+                      accept="image/*"
+                      onChange={handleHazardImageFileChange}
+                      disabled={isHazardModalBusy}
+                    />
+
+                    <div className="admin-editor-upload-row">
+                      <span className="admin-editor-upload-text">
+                        {hazardImageFile
+                          ? `Selected file: ${hazardImageFile.name}`
+                          : 'Choose an image file to upload and auto-fill the image URL field.'}
+                      </span>
+                      <button
+                        type="button"
+                        className="admin-secondary-button"
+                        onClick={handleHazardImageUpload}
+                        disabled={!hazardImageFile || isHazardModalBusy}
+                      >
+                        {isHazardImageUploading ? 'Uploading Image...' : 'Upload Selected Image'}
+                      </button>
+                    </div>
+                  </label>
+
+                  <label className="admin-editor-field admin-editor-field-full">
+                    <span>Image URL (optional)</span>
+                    <input
+                      type="url"
+                      name="imageUrl"
+                      className="admin-editor-input"
+                      value={hazardForm.imageUrl}
+                      onChange={handleHazardFormChange}
+                      placeholder="https://ik.imagekit.io/..."
+                    />
+
+                    {hazardForm.imageUrl.trim() ? (
+                      <a
+                        href={hazardForm.imageUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="admin-editor-upload-link"
+                      >
+                        Preview uploaded image
+                      </a>
+                    ) : null}
+                  </label>
+
+                  <div className="admin-editor-actions">
+                    <button type="submit" className="admin-primary-button" disabled={isHazardModalBusy}>
+                      {isHazardSubmitting
+                        ? hazardEditorMode === 'create'
+                          ? 'Creating...'
+                          : 'Saving...'
+                        : hazardEditorMode === 'create'
+                          ? 'Create Hazard'
+                          : 'Save Changes'}
+                    </button>
+                    <button
+                      type="button"
+                      className="admin-secondary-button"
+                      onClick={handleHazardCancelEditor}
+                      disabled={isHazardModalBusy}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>

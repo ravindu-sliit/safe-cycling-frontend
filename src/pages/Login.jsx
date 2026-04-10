@@ -317,10 +317,7 @@ export default function Login() {
                   </button>
                 ) : null}
 
-                <div className="login-remember-row">
-                  <input id="remember" type="checkbox" className="checkbox" />
-                  <label htmlFor="remember" className="label-inline label-check">Keep me signed in</label>
-                </div>
+                
 
                 <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
                   {loading ? (
