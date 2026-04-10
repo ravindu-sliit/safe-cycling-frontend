@@ -199,12 +199,18 @@ export default function Reviews() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  const getReviewScore = (review) => {
+    return Math.max(0, (review.upvotes?.length || 0) - (review.downvotes?.length || 0));
+  };
+
   const filtered = (filter === 'All' ? reviews : reviews.filter(r => r.difficulty === filter))
-    .slice().sort((a, b) => (
-      sort === 'newest'
-        ? new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-        : Number(b.likes || 0) - Number(a.likes || 0)
-    ))
+    .slice().sort((a, b) => {
+      if (sort === 'newest') {
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      } else {
+        return getReviewScore(b) - getReviewScore(a);
+      }
+    });
 
   const resetForm = (routeId = selectedRouteId) => {
     const selectedRoute = routes.find((route) => (route?._id || route?.id || '') === routeId)
@@ -326,31 +332,19 @@ export default function Reviews() {
     }
   }
 
-  const handleLike = async (reviewId, currentLikes) => {
+  const handleVote = async (reviewId, voteType) => {
     if (!currentUserId) {
-      setFormError('Please log in first to like reviews.')
-      return
+        setFormError('Please log in first to vote.');
+        return;
     }
-
-    const nextLikes = Number(currentLikes || 0) + 1
-
-    setReviews((previous) => previous.map((review) => (
-      (review?._id || review?.id) === reviewId
-        ? { ...review, likes: nextLikes }
-        : review
-    )))
-
     try {
-      await api.post(`/reviews/${reviewId}/like`)
+        await api.post(`/reviews/${reviewId}/vote`, { type: voteType });
+        const response = await api.get(`/reviews/route/${selectedRouteId}`);
+        setReviews(response.data.reviews || []);
     } catch (error) {
-      setReviews((previous) => previous.map((review) => (
-        (review?._id || review?.id) === reviewId
-          ? { ...review, likes: Number(currentLikes || 0) }
-          : review
-      )))
-      setFormError(extractRequestErrorMessage(error, 'Failed to like this review.'))
+        setFormError(extractRequestErrorMessage(error, 'Failed to register vote.'));
     }
-  }
+  };
 
   return (
     <div className="page">
@@ -527,7 +521,7 @@ export default function Reviews() {
             className="sort-select"
           >
             <option value="newest">Newest first</option>
-            <option value="popular">Most liked</option>
+            <option value="popular">Most helpful</option>
           </select>
         </div>
       </div>
@@ -537,7 +531,7 @@ export default function Reviews() {
         {[
           { label: 'Total Reviews', value: count, icon: '📝' },
           { label: 'Avg. Rating', value: `${Number(averages?.rating || 0).toFixed(1)} ★`, icon: '⭐' },
-          { label: 'Total Likes', value: reviews.reduce((a, r) => a + Number(r.likes || 0), 0), icon: '❤️' },
+          { label: 'Total Review Score', value: reviews.reduce((total, r) => {return total + getReviewScore(r);}, 0), icon: '👍' },
         ].map(s => (
           <div key={s.label} className="summary-tile">
             <span className="summary-icon">{s.icon}</span>
@@ -591,7 +585,6 @@ export default function Reviews() {
                       </div>
                     </div>
                     <div className="review-date-col">
-                      <div className="review-date">Updated - {formatDate(review.updatedAt)}</div>
                       <div className="review-date">Created - {formatDate(review.createdAt)}</div>
                     </div>
                   </div>
@@ -599,9 +592,33 @@ export default function Reviews() {
                   <p className="review-comment">{review.comment}</p>
 
                   <div className="review-actions">
-                    <button className="btn btn-ghost btn-sm" onClick={() => handleLike(reviewId, review.likes)}>
-                      <IconHeart /> {Number(review.likes || 0)}
-                    </button>
+                    {/* VOTING SYSTEM */}
+                    {(() => {
+                        const score = getReviewScore(review);
+                        const hasUpvoted = review.upvotes?.includes(currentUserId);
+                        const hasDownvoted = review.downvotes?.includes(currentUserId);
+
+                        return (
+                            <div className="vote-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <button 
+                                    className={`btn btn-sm ${hasUpvoted ? 'btn-primary' : 'btn-ghost'}`} 
+                                    onClick={() => handleVote(reviewId, 'up')}
+                                >
+                                    👍 Helpful
+                                </button>
+                                
+                                <span style={{ fontWeight: 'bold' }}>{score}</span>
+                                
+                                <button 
+                                    className={`btn btn-sm ${hasDownvoted ? 'btn-danger' : 'btn-ghost'}`} 
+                                    onClick={() => handleVote(reviewId, 'down')}
+                                >
+                                    👎 Not Helpful
+                                </button>
+                            </div>
+                        );
+                    })()}
+                    {/* --- END OF VOTING SYSTEM --- */}
                     <button className="btn btn-ghost btn-sm" disabled><IconComment /> Reply</button>
                     <button className="btn btn-ghost btn-sm"><IconShare /> Share</button>
                     {canEditReview(review) && (
