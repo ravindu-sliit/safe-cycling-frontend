@@ -2666,21 +2666,16 @@ label {
   margin-bottom: 2px;
 }
 
-.review-author-col {
+.review-date-col {
   text-align: right;
   flex-shrink: 0;
 }
 
-.review-author {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
 .review-date {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--text-secondary);
+  margin-bottom: 3px;
 }
 
 .review-comment {
