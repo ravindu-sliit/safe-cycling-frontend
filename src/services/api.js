@@ -10,8 +10,10 @@ const normalizeApiBaseUrl = (value) => {
   return trimmedValue.endsWith('/api') ? trimmedValue : `${trimmedValue}/api`
 }
 
+const apiBaseUrlFromEnv = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL
+
 const api = axios.create({
-  baseURL: normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL),
+  baseURL: normalizeApiBaseUrl(apiBaseUrlFromEnv),
 })
 
 api.interceptors.request.use((config) => {
