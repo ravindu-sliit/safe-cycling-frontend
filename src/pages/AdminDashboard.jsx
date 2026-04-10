@@ -309,15 +309,6 @@ function IconGrid() {
   )
 }
 
-function IconProfile() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </svg>
-  )
-}
-
 export default function AdminDashboard() {
   const navigate = useNavigate()
   const { logout, updateUser, user: currentUser } = useAuth()
@@ -1125,15 +1116,6 @@ export default function AdminDashboard() {
       Icon: IconReview,
       onClick: () => handleAdminSectionChange('reviews'),
       isActive: activeAdminSection === 'reviews',
-    },
-    {
-      id: 'profile',
-      label: 'Admin Profile',
-      note: 'Review your account summary and jump to full settings.',
-      badge: getRoleLabel(adminProfile?.role || currentUser?.role || 'admin'),
-      Icon: IconProfile,
-      onClick: () => handleAdminSectionChange('profile'),
-      isActive: activeAdminSection === 'profile',
     },
   ]
 
