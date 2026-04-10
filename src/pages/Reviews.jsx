@@ -581,7 +581,7 @@ export default function Reviews() {
                 <div className="review-content">
                   <div className="review-meta-row">
                     <div>
-                      <h3 className="review-route-name">{routeTitle}</h3>
+                      <h3 className="review-route-name">{author}</h3>
                       <div className="review-tags">
                         <StarRating rating={Number(review.rating || 0)} />
                         <DifficultyBadge difficulty={review.difficulty} />
@@ -590,9 +590,9 @@ export default function Reviews() {
                         </div>
                       </div>
                     </div>
-                    <div className="review-author-col">
-                      <div className="review-author">{author}</div>
-                      <div className="review-date">{formatDate(review.createdAt)}</div>
+                    <div className="review-date-col">
+                      <div className="review-date">Updated - {formatDate(review.updatedAt)}</div>
+                      <div className="review-date">Created - {formatDate(review.createdAt)}</div>
                     </div>
                   </div>
 
