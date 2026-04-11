@@ -10,6 +10,7 @@ const INITIAL_FORM = {
   difficulty: 'Easy',
   distance: '',
   comment: '',
+  pitStops: [],
 }
 
 function getCurrentUser() {
@@ -134,6 +135,34 @@ export default function Reviews() {
     setRouteSearch('')
   }
 
+  const [pitStopSearch, setPitStopSearch] = useState('')
+  const [pitStopResults, setPitStopResults] = useState([])
+  const [isSearchingPitStop, setIsSearchingPitStop] = useState(false)
+
+  const searchOpenStreetMap = async (e) => {
+    e.preventDefault();
+    if (!pitStopSearch.trim()) return;
+
+    setIsSearchingPitStop(true);
+    setFormError('');
+
+    try {
+      // Free Nominatim API, restricted to Sri Lanka (lk) for local accuracy
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(pitStopSearch)}&countrycodes=lk&limit=5`
+      );
+      
+      if (!response.ok) throw new Error('Network response was not ok');
+      
+      const data = await response.json();
+      setPitStopResults(data);
+    } catch (error) {
+      setFormError('Could not fetch locations. Please try again.');
+    } finally {
+      setIsSearchingPitStop(false);
+    }
+  };
+
   useEffect(() => {
     const fetchRoutes = async () => {
       try {
@@ -252,6 +281,7 @@ export default function Reviews() {
       difficulty: review?.difficulty || 'Easy',
       distance: Number(review?.distance || 0),
       comment: review?.comment || '',
+      pitStops: review?.pitStops || [],
     })
     setIsReviewModalOpen(true)
   }
@@ -282,6 +312,7 @@ export default function Reviews() {
       difficulty: formData.difficulty,
       distance: Number(formData.distance),
       comment: String(formData.comment || '').trim(),
+      pitStops: formData.pitStops || [],
     }
 
     if (!payload.route) {
@@ -474,7 +505,87 @@ export default function Reviews() {
                   />
                 </div>
               </div>
+              {/* --- FREE OPENSTREETMAP PIT STOP SEARCH --- */}
+              <div className="osm-search-container">
+                <label>Tag a Pit Stop (Optional)</label>
+                <div className="osm-search-header">
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="Search for a shop, cafe, or location..."
+                    value={pitStopSearch}
+                    onChange={(e) => setPitStopSearch(e.target.value)}
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    onClick={searchOpenStreetMap}
+                    disabled={isSearchingPitStop}
+                  >
+                    {isSearchingPitStop ? '...' : 'Search'}
+                  </button>
+                </div>
 
+                {/* Display Search Results */}
+                {pitStopResults.length > 0 && (
+                  <div className="osm-results-dropdown">
+                    {pitStopResults.map((place) => (
+                      <button
+                        key={place.place_id}
+                        type="button"
+                        className="osm-result-item"
+                        onClick={() => {
+                          setFormData((prev) => {
+                            // Prevent adding the exact same place twice!
+                            const alreadyExists = prev.pitStops.some(p => p.placeId === place.place_id);
+                            if (alreadyExists) return prev;
+
+                            return {
+                              ...prev,
+                              // Use the spread operator [...] to keep existing stops and add the new one
+                              pitStops: [...prev.pitStops, {
+                                name: place.display_name.split(',')[0], 
+                                placeId: place.place_id,
+                                address: place.display_name
+                              }]
+                            };
+                          });
+                          setPitStopResults([]);
+                          setPitStopSearch('');
+                        }}
+                      >
+                        <strong>{place.display_name.split(',')[0]}</strong>
+                        <span>{place.display_name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Show ALL selected places */}
+                {formData.pitStops && formData.pitStops.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
+                      {formData.pitStops.map((stop) => (
+                        <div key={stop.placeId} className="osm-tagged-place" style={{ margin: 0 }}>
+                            <span>✓ Tagged: <strong>{stop.name}</strong></span>
+                            <button 
+                              type="button" 
+                              className="osm-remove-btn"
+                              onClick={() => {
+                                // Filter out the specific stop the user clicked "Remove" on
+                                setFormData(prev => ({ 
+                                  ...prev, 
+                                  pitStops: prev.pitStops.filter(p => p.placeId !== stop.placeId) 
+                                }))
+                              }}
+                            >
+                              Remove
+                            </button>
+                        </div>
+                      ))}
+                    </div>
+                )}
+              </div>
+              {/* --- END OSM SEARCH --- */}
               <div>
                 <label htmlFor="comment">Comment</label>
                 <textarea
@@ -582,6 +693,20 @@ export default function Reviews() {
                         <div className="meta-row">
                           <IconRoute /> {Number(review.distance || 0)} km
                         </div>
+                        {/* Render multiple OSM Pit Stop badges if they exist */}
+                        {review.pitStops && review.pitStops.length > 0 && (
+                          review.pitStops.map((stop, index) => (
+                            <a 
+                              key={stop.placeId || index}
+                              href={`https://www.openstreetmap.org/search?query=${encodeURIComponent(stop.address)}`}
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="badge badge-location"
+                            >
+                              📍 {stop.name}
+                            </a>
+                          ))
+                        )}
                       </div>
                     </div>
                     <div className="review-date-col">
@@ -643,7 +768,7 @@ export default function Reviews() {
       {!loading && !loadError && filtered.length === 0 && (
         <div className="empty-state">
           <div className="empty-emoji">🗺️</div>
-          <p>No reviews found for this filter.</p>
+          <p>No reviews found.</p>
         </div>
       )}
     </div>
