@@ -222,7 +222,27 @@ npm run preview
 - Backend live API URL: https://safe-cycling-backend.vercel.app/api
 - Vercel dashboard (build/deployment logs): https://vercel.com/dashboard
 
-### 9.4 Quick Runtime Verification (Cloud)
+### 9.4 Deployment Screenshots
+
+Place the screenshot files in `docs/screenshots/` using the exact file names below.
+
+#### Frontend Vercel Production Deployment
+
+![Frontend Vercel Production Deployment](docs/screenshots/frontend-vercel-overview.png)
+
+#### Backend Vercel Production Deployment
+
+![Backend Vercel Production Deployment](docs/screenshots/backend-vercel-overview.png)
+
+#### Frontend Live Map View
+
+![Frontend Live Map View](docs/screenshots/frontend-live-map.png)
+
+#### Backend Live Health Endpoint
+
+![Backend Live Health Endpoint](docs/screenshots/backend-live-health.png)
+
+### 9.5 Quick Runtime Verification (Cloud)
 
 - Open frontend live URL and navigate to dashboard after login.
 - Reload on a client route such as `/dashboard` and confirm no 404 occurs.
