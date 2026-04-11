@@ -2771,6 +2771,9 @@ label {
 .review-date-col {
   text-align: right;
   flex-shrink: 0;
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
 }
 
 .review-date {
@@ -2789,8 +2792,125 @@ label {
 
 .review-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
   margin-top: 16px;
+  padding-right: 140px;
+}
+
+.card {
+  position: relative;
+}
+
+.review-top-actions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+}
+
+.review-top-actions .btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.review-top-actions .btn:hover {
+  background: var(--bg-hover);
+}
+
+.review-meta-row {
+  padding-right: 140px; 
+}
+
+/* ═══════════════════════════════════════════════
+   REVIEWS PAGE
+═══════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .page-header-row {
+    flex-direction: column;
+    align-items: flex-start; 
+    gap: 16px;
+  }
+
+  .page-header-row .filter-bar-spacer {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    margin-left: 0; 
+    gap: 10px;
+  }
+
+  .page-header-row .filter-bar-spacer > div {
+    width: 100%;
+    min-width: 100% !important;
+  }
+
+  .page-header-row .filter-bar-spacer .btn-primary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .card {
+    position: relative;
+  }
+
+  .review-meta-row {
+    padding-right: 0 !important;
+  }
+
+  .review-row {
+    padding-top: 24px; 
+  }
+
+  .review-date-col {
+    position: static !important; /* This cancels the absolute positioning */
+    text-align: left;
+    width: 100%;
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
+
+  .review-actions {
+    padding-right: 0 !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   VOTING SYSTEM
+═══════════════════════════════════════════════ */
+.vote-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-light);
+  border-radius: 99px;
+}
+
+.vote-score {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 24px;
+  text-align: center;
+  font-family: var(--font-display);
+}
+
+.vote-controls .btn-sm {
+  border: none;
+  border-radius: 99px;
+  padding: 5px 12px;
+  box-shadow: none;
+}
+
+.vote-controls .btn-ghost:hover {
+  background: var(--bg-hover);
 }
 
 /* ═══════════════════════════════════════════════
