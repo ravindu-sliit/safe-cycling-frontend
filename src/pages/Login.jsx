@@ -1,6 +1,8 @@
 import { startTransition, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import PasswordField from '../components/PasswordField.jsx'
 import api from '../services/api'
+import { BRAND_LOGO_SRC, BRAND_NAME } from '../constants/brand.js'
 import { useAuth } from '../context/AuthContext.jsx'
 
 const initialForm = {
@@ -212,15 +214,9 @@ export default function Login() {
 
         <div className="login-brand-logo">
           <div className="login-brand-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="5.5" cy="17.5" r="3.5" />
-              <circle cx="18.5" cy="17.5" r="3.5" />
-              <path d="M15 6h-5l-3 9" />
-              <path d="M18.5 14l-3.5-8H9" />
-              <path d="M5.5 14l4-8" />
-            </svg>
+            <img src={BRAND_LOGO_SRC} alt="" aria-hidden="true" className="login-brand-img" />
           </div>
-          <span className="login-brand-name">Safe Cycling</span>
+          <span className="login-brand-name">{BRAND_NAME}</span>
         </div>
 
         <div className="login-brand-copy">
@@ -250,7 +246,7 @@ export default function Login() {
           </div>
         </div>
 
-        <p className="login-brand-footer">© 2026 Safe Cycling. All rights reserved.</p>
+        <p className="login-brand-footer">Copyright {new Date().getFullYear()} {BRAND_NAME}. All rights reserved.</p>
       </div>
 
       <div className="login-form-panel">
@@ -294,10 +290,9 @@ export default function Login() {
                     <label htmlFor="password" className="label-inline">Password</label>
                     <Link to="/forgot-password" className="btn-link">Forgot password?</Link>
                   </div>
-                  <input
+                  <PasswordField
                     id="password"
                     name="password"
-                    type="password"
                     required
                     className="input"
                     placeholder="Enter your password"

@@ -1,33 +1,111 @@
 import { startTransition, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import PasswordField from '../components/PasswordField.jsx'
 import api from '../services/api'
+import { BRAND_LOGO_SRC, BRAND_NAME } from '../constants/brand.js'
 
 const initialForm = {
   name: '',
   email: '',
   password: '',
-  cyclingStyle: 'commuter',
+  confirmPassword: '',
 }
 
-const cyclingStyles = [
-  { value: 'commuter', label: 'Commuter' },
-  { value: 'fitness', label: 'Fitness rider' },
-  { value: 'adventure', label: 'Adventure rider' },
-  { value: 'casual', label: 'Casual explorer' },
-]
+const emptyFieldErrors = {
+  name: '',
+  email: '',
+  password: '',
+  confirmPassword: '',
+}
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const validateField = (name, value, formState) => {
+  switch (name) {
+    case 'name': {
+      const trimmedName = value.trim()
+
+      if (!trimmedName) return 'Full name is required.'
+      if (trimmedName.length < 2) return 'Full name must be at least 2 characters.'
+      return ''
+    }
+
+    case 'email': {
+      const trimmedEmail = value.trim()
+
+      if (!trimmedEmail) return 'Email address is required.'
+      if (!emailPattern.test(trimmedEmail)) return 'Enter a valid email address.'
+      return ''
+    }
+
+    case 'password': {
+      if (!value) return 'Password is required.'
+      if (value.length < 8) return 'Password must be at least 8 characters.'
+      if (!/[a-z]/.test(value)) return 'Password must include at least one lowercase letter.'
+      if (!/[A-Z]/.test(value)) return 'Password must include at least one uppercase letter.'
+      if (!/\d/.test(value)) return 'Password must include at least one number.'
+      return ''
+    }
+
+    case 'confirmPassword':
+      if (!value) return 'Please confirm your password.'
+      if (value !== formState.password) return 'Passwords do not match.'
+      return ''
+
+    default:
+      return ''
+  }
+}
+
+const validateForm = (formState) => ({
+  name: validateField('name', formState.name, formState),
+  email: validateField('email', formState.email, formState),
+  password: validateField('password', formState.password, formState),
+  confirmPassword: validateField('confirmPassword', formState.confirmPassword, formState),
+})
 
 export default function Register() {
   const navigate = useNavigate()
   const [form, setForm] = useState(initialForm)
+  const [fieldErrors, setFieldErrors] = useState(emptyFieldErrors)
+  const [touchedFields, setTouchedFields] = useState({})
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleChange = (event) => {
     const { name, value } = event.target
-    setForm((current) => ({
+    setError('')
+
+    setForm((current) => {
+      const nextForm = {
+        ...current,
+        [name]: value,
+      }
+
+      setFieldErrors((currentErrors) => ({
+        ...currentErrors,
+        ...(touchedFields[name] ? { [name]: validateField(name, value, nextForm) } : {}),
+        ...(name === 'password' && touchedFields.confirmPassword
+          ? { confirmPassword: validateField('confirmPassword', nextForm.confirmPassword, nextForm) }
+          : {}),
+      }))
+
+      return nextForm
+    })
+  }
+
+  const handleBlur = (event) => {
+    const { name, value } = event.target
+
+    setTouchedFields((current) => ({
       ...current,
-      [name]: value,
+      [name]: true,
+    }))
+
+    setFieldErrors((current) => ({
+      ...current,
+      [name]: validateField(name, value, form),
     }))
   }
 
@@ -35,11 +113,30 @@ export default function Register() {
     event.preventDefault()
     setError('')
     setSuccessMessage('')
+
+    const nextFieldErrors = validateForm(form)
+    const hasValidationError = Object.values(nextFieldErrors).some(Boolean)
+
+    setFieldErrors(nextFieldErrors)
+    setTouchedFields({
+      name: true,
+      email: true,
+      password: true,
+      confirmPassword: true,
+    })
+
+    if (hasValidationError) {
+      setError('Please fix the highlighted fields and try again.')
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
       const payload = {
-        ...form,
+        name: form.name.trim(),
+        email: form.email.trim(),
+        password: form.password,
         role: 'user',
       }
 
@@ -48,6 +145,8 @@ export default function Register() {
         data.message || 'Registration successful. Please check your email to verify your account.',
       )
       setForm(initialForm)
+      setFieldErrors(emptyFieldErrors)
+      setTouchedFields({})
 
       setTimeout(() => {
         startTransition(() => {
@@ -72,15 +171,9 @@ export default function Register() {
 
         <div className="login-brand-logo">
           <div className="login-brand-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="5.5" cy="17.5" r="3.5" />
-              <circle cx="18.5" cy="17.5" r="3.5" />
-              <path d="M15 6h-5l-3 9" />
-              <path d="M18.5 14l-3.5-8H9" />
-              <path d="M5.5 14l4-8" />
-            </svg>
+            <img src={BRAND_LOGO_SRC} alt="" aria-hidden="true" className="login-brand-img" />
           </div>
-          <span className="login-brand-name">Safe Cycling</span>
+          <span className="login-brand-name">{BRAND_NAME}</span>
         </div>
 
         <div className="login-brand-copy">
@@ -94,13 +187,13 @@ export default function Register() {
             <span className="login-brand-accent">profile the right way</span>
           </h1>
           <p className="login-brand-desc">
-            Create your account once, verify your email, and start with the cycling preferences your platform already understands.
+            Create your account once, verify your email, and choose ride preferences later from your profile.
           </p>
           <div className="login-brand-stats">
             {[
               { val: '2 min', label: 'Quick setup' },
               { val: '1 email', label: 'Verification flow' },
-              { val: '4 styles', label: 'Ride profiles' },
+              { val: 'Later', label: 'Profile setup' },
             ].map((item) => (
               <div key={item.label} className="login-stat">
                 <div className="login-stat-val">{item.val}</div>
@@ -110,7 +203,7 @@ export default function Register() {
           </div>
         </div>
 
-        <p className="login-brand-footer">Create your Safe Cycling identity and get ready for safer trips.</p>
+        <p className="login-brand-footer">Create your {BRAND_NAME} identity and get ready for safer trips.</p>
       </div>
 
       <div className="login-form-panel">
@@ -120,7 +213,7 @@ export default function Register() {
             <p>Register your rider profile to access routes, hazards, and community features</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="login-form">
+          <form onSubmit={handleSubmit} className="login-form" noValidate>
             <div>
               <label htmlFor="name">Full name</label>
               <input
@@ -128,12 +221,18 @@ export default function Register() {
                 name="name"
                 type="text"
                 required
-                className="input"
+                className={`input${fieldErrors.name ? ' input-error' : ''}`}
                 placeholder="Your full name"
                 autoComplete="name"
                 value={form.name}
                 onChange={handleChange}
+                onBlur={handleBlur}
+                aria-invalid={fieldErrors.name ? 'true' : 'false'}
+                aria-describedby={fieldErrors.name ? 'register-name-error' : undefined}
               />
+              {fieldErrors.name ? (
+                <span id="register-name-error" className="auth-field-error">{fieldErrors.name}</span>
+              ) : null}
             </div>
 
             <div>
@@ -143,44 +242,61 @@ export default function Register() {
                 name="email"
                 type="email"
                 required
-                className="input"
+                className={`input${fieldErrors.email ? ' input-error' : ''}`}
                 placeholder="you@example.com"
                 autoComplete="email"
                 value={form.email}
                 onChange={handleChange}
+                onBlur={handleBlur}
+                aria-invalid={fieldErrors.email ? 'true' : 'false'}
+                aria-describedby={fieldErrors.email ? 'register-email-error' : undefined}
               />
+              {fieldErrors.email ? (
+                <span id="register-email-error" className="auth-field-error">{fieldErrors.email}</span>
+              ) : null}
             </div>
 
             <div>
               <label htmlFor="password">Password</label>
-              <input
+              <PasswordField
                 id="password"
                 name="password"
-                type="password"
                 required
-                className="input"
+                className={`input${fieldErrors.password ? ' input-error' : ''}`}
                 placeholder="Create a secure password"
                 autoComplete="new-password"
                 value={form.password}
                 onChange={handleChange}
+                onBlur={handleBlur}
+                aria-invalid={fieldErrors.password ? 'true' : 'false'}
+                aria-describedby={fieldErrors.password ? 'register-password-help register-password-error' : 'register-password-help'}
               />
+              <span id="register-password-help" className="auth-field-hint">
+                Use at least 8 characters with uppercase, lowercase, and a number.
+              </span>
+              {fieldErrors.password ? (
+                <span id="register-password-error" className="auth-field-error">{fieldErrors.password}</span>
+              ) : null}
             </div>
 
             <div>
-              <label htmlFor="cyclingStyle">Cycling style</label>
-              <select
-                id="cyclingStyle"
-                name="cyclingStyle"
-                className="input auth-select"
-                value={form.cyclingStyle}
+              <label htmlFor="confirmPassword">Confirm password</label>
+              <PasswordField
+                id="confirmPassword"
+                name="confirmPassword"
+                required
+                className={`input${fieldErrors.confirmPassword ? ' input-error' : ''}`}
+                placeholder="Confirm your password"
+                autoComplete="new-password"
+                value={form.confirmPassword}
                 onChange={handleChange}
-              >
-                {cyclingStyles.map((style) => (
-                  <option key={style.value} value={style.value}>
-                    {style.label}
-                  </option>
-                ))}
-              </select>
+                onBlur={handleBlur}
+                aria-invalid={fieldErrors.confirmPassword ? 'true' : 'false'}
+                aria-describedby={fieldErrors.confirmPassword ? 'register-confirm-password-error' : undefined}
+              />
+              {fieldErrors.confirmPassword ? (
+                <span id="register-confirm-password-error" className="auth-field-error">{fieldErrors.confirmPassword}</span>
+              ) : null}
             </div>
 
             <div className="login-oauth-grid">

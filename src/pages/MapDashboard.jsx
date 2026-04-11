@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { BRAND_NAME } from '../constants/brand.js'
 import { HAZARD_TYPE_VALUES } from '../constants/hazardTypes'
 import 'leaflet/dist/leaflet.css'
 
@@ -1100,7 +1101,7 @@ export default function MapDashboard() {
 
           {verificationBanner ? (
             <div className="absolute top-4 left-1/2 z-[1000] -translate-x-1/2 rounded-xl border border-green-500/30 bg-green-500/15 px-4 py-2 text-sm text-green-200 backdrop-blur-sm">
-              Email verified. Welcome back to Safe Cycling.
+              Email verified. Welcome back to {BRAND_NAME}.
             </div>
           ) : null}
 
