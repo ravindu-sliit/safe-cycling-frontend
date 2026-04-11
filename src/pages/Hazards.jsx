@@ -18,6 +18,7 @@ const INITIAL_FORM = {
 }
 
 const MAX_ACCEPTED_LOCATION_ACCURACY_METERS = 100
+const HAZARDS_PER_PAGE = 8
 
 function SeverityBadge({ severity }) {
   const normalized = String(severity || 'low').toLowerCase()
@@ -213,6 +214,15 @@ function IconPlus() {
   )
 }
 
+function IconCamera() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14.5 4H9.5l-1.4 2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.1z" />
+      <circle cx="12" cy="12" r="3.5" />
+    </svg>
+  )
+}
+
 function IconMore() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -228,6 +238,7 @@ export default function Hazards() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [filter, setFilter] = useState('all')
+  const [hazardPage, setHazardPage] = useState(1)
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isStatusUpdateMode, setIsStatusUpdateMode] = useState(false)
@@ -259,7 +270,6 @@ export default function Hazards() {
   const [cameraError, setCameraError] = useState('')
   const [cameraStream, setCameraStream] = useState(null)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
-  const fileInputRef = useRef(null)
   const cameraVideoRef = useRef(null)
   const currentUserId = useMemo(() => getCurrentUserId(), [])
 
@@ -292,6 +302,19 @@ export default function Hazards() {
     }
     return hazards.filter(h => String(h.severity || '').toLowerCase() === filter)
   }, [filter, hazards])
+
+  const totalHazardPages = Math.max(1, Math.ceil(filtered.length / HAZARDS_PER_PAGE))
+  const activeHazardPage = Math.min(hazardPage, totalHazardPages)
+  const paginatedHazards = filtered.slice(
+    (activeHazardPage - 1) * HAZARDS_PER_PAGE,
+    activeHazardPage * HAZARDS_PER_PAGE,
+  )
+
+  useEffect(() => {
+    if (hazardPage > totalHazardPages) {
+      setHazardPage(totalHazardPages)
+    }
+  }, [hazardPage, totalHazardPages])
 
   const currentCoordinatesText = useMemo(
     () => formatCoordinates(currentLocation.latitude, currentLocation.longitude),
@@ -426,20 +449,6 @@ export default function Hazards() {
           resolvingName: false,
         })
       })
-  }
-
-  const onImageChange = (event) => {
-    const nextFile = event.target.files?.[0] || null
-    setImageFile(nextFile)
-    setCameraError('')
-
-    setImagePreviewUrl((previousUrl) => {
-      if (previousUrl) {
-        URL.revokeObjectURL(previousUrl)
-      }
-
-      return nextFile ? URL.createObjectURL(nextFile) : ''
-    })
   }
 
   const openReportModal = () => {
@@ -720,9 +729,6 @@ export default function Hazards() {
       return ''
     })
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
   }
 
   useEffect(() => {
@@ -985,7 +991,10 @@ export default function Hazards() {
         ].map(f => (
           <button
             key={f.value}
-            onClick={() => setFilter(f.value)}
+            onClick={() => {
+              setFilter(f.value)
+              setHazardPage(1)
+            }}
             className={`filter-pill${filter === f.value ? ' active' : ''}`}
           >
             {f.label}
@@ -1012,7 +1021,7 @@ export default function Hazards() {
       {/* Cards grid */}
       {!loading && !loadError && (
         <div className="hazard-grid">
-          {filtered.map(hazard => {
+          {paginatedHazards.map(hazard => {
             const hazardId = hazard?._id || ''
             const ownerId = getHazardOwnerId(hazard)
             const isOwnHazard = Boolean(currentUserId && ownerId && ownerId === currentUserId)
@@ -1109,6 +1118,28 @@ export default function Hazards() {
             </div>
             )
           })}
+        </div>
+      )}
+
+      {!loading && !loadError && filtered.length > 0 && totalHazardPages > 1 && (
+        <div className="hazard-pagination">
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setHazardPage((current) => Math.max(1, current - 1))}
+            disabled={activeHazardPage === 1}
+          >
+            Previous
+          </button>
+          <span className="hazard-pagination-meta">Page {activeHazardPage} of {totalHazardPages}</span>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => setHazardPage((current) => Math.min(totalHazardPages, current + 1))}
+            disabled={activeHazardPage === totalHazardPages}
+          >
+            Next
+          </button>
         </div>
       )}
 
@@ -1399,21 +1430,22 @@ export default function Hazards() {
               )}
 
               <div>
-                <label htmlFor="hazardImage">
+                <label>
                   {isStatusUpdateMode
                     ? editingCommunityUpdateId
-                      ? 'Current Hazard Image (optional - upload to replace existing image)'
+                      ? 'Current Hazard Image (optional - capture to replace existing image)'
                       : 'Current Hazard Image (required)'
-                    : 'Hazard Image (Live camera or gallery)'}
+                    : 'Hazard Image (Live camera only)'}
                 </label>
                 <div className="camera-actions">
                   <button
                     type="button"
-                    className="btn btn-ghost btn-sm"
+                    className="btn btn-ghost btn-sm hazard-camera-btn"
                     onClick={openCamera}
                     disabled={submitting || isCameraOpen}
                   >
-                    {isCameraOpen ? 'Camera Open' : 'Open Device Camera'}
+                    <span className="camera-btn-icon"><IconCamera /></span>
+                    {isCameraOpen ? 'Camera Open' : 'Open Camera'}
                   </button>
 
                   {isCameraOpen && (
@@ -1443,16 +1475,6 @@ export default function Hazards() {
                     <video ref={cameraVideoRef} className="camera-preview" autoPlay playsInline muted />
                   </div>
                 )}
-
-                <input
-                  ref={fileInputRef}
-                  id="hazardImage"
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="input"
-                  onChange={onImageChange}
-                />
 
                 {cameraError && <p className="form-error">{cameraError}</p>}
 
