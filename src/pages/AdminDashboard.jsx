@@ -99,6 +99,7 @@ const DEFAULT_HAZARD_FORM = {
 }
 
 const MAX_HAZARD_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024
+const HAZARDS_PAGE_SIZE = 10
 
 function normalizeRoleValue(value) {
   const role = String(value || 'user').toLowerCase()
@@ -343,6 +344,7 @@ export default function AdminDashboard() {
   const [routeForm, setRouteForm] = useState(DEFAULT_ROUTE_FORM)
   const [isRouteSubmitting, setIsRouteSubmitting] = useState(false)
   const [activeAdminSection, setActiveAdminSection] = useState('overview')
+  const [hazardPage, setHazardPage] = useState(1)
   const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLowerCase())
   const currentUserId = getUserId(currentUser)
 
@@ -363,6 +365,10 @@ export default function AdminDashboard() {
 
   const handleAdminSectionChange = (sectionId) => {
     setActiveAdminSection(sectionId)
+
+    if (sectionId === 'hazards') {
+      setHazardPage(1)
+    }
   }
 
   const handleFormChange = (event) => {
@@ -714,7 +720,17 @@ export default function AdminDashboard() {
   const averageRouteEcoScore = routes.length
     ? routes.reduce((sum, route) => sum + Number(route.ecoScore || 0), 0) / routes.length
     : 0
-  const recentHazards = hazards.slice(0, 8)
+  const hazardRows = hazards
+    .slice()
+    .sort((left, right) => new Date(right?.createdAt || 0).getTime() - new Date(left?.createdAt || 0).getTime())
+  const hazardPageCount = Math.max(1, Math.ceil(hazardRows.length / HAZARDS_PAGE_SIZE))
+  const activeHazardPage = Math.min(hazardPage, hazardPageCount)
+  const pagedHazardRows = hazardRows.slice(
+    (activeHazardPage - 1) * HAZARDS_PAGE_SIZE,
+    activeHazardPage * HAZARDS_PAGE_SIZE,
+  )
+  const canGoToPreviousHazardPage = activeHazardPage > 1
+  const canGoToNextHazardPage = activeHazardPage < hazardPageCount
   const recentRoutes = routes.slice(0, 8)
   const recentReviews = reviews.slice(0, 8)
 
@@ -1500,14 +1516,14 @@ export default function AdminDashboard() {
                         Loading hazard reports...
                       </td>
                     </tr>
-                  ) : recentHazards.length === 0 ? (
+                  ) : hazardRows.length === 0 ? (
                     <tr>
                       <td colSpan="8" className="admin-table-empty">
                         No hazard reports found in the backend database.
                       </td>
                     </tr>
                   ) : (
-                    recentHazards.map((hazard) => (
+                    pagedHazardRows.map((hazard) => (
                       <tr key={getHazardId(hazard) || `${hazard?.title || 'hazard'}-${hazard?.createdAt || ''}`}>
                         <td>
                           <div className="admin-cell-stack">
@@ -1559,6 +1575,33 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
+
+            {hazardRows.length > HAZARDS_PAGE_SIZE ? (
+              <div className="admin-table-toolbar">
+                <span>Page {activeHazardPage} of {hazardPageCount}</span>
+                <div className="admin-row-actions">
+                  {canGoToPreviousHazardPage ? (
+                    <button
+                      type="button"
+                      className="admin-secondary-button"
+                      onClick={() => setHazardPage(activeHazardPage - 1)}
+                    >
+                      Previous
+                    </button>
+                  ) : null}
+
+                  {canGoToNextHazardPage ? (
+                    <button
+                      type="button"
+                      className="admin-primary-button"
+                      onClick={() => setHazardPage(activeHazardPage + 1)}
+                    >
+                      Next
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
           ) : null}
 
