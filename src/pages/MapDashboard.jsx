@@ -30,6 +30,7 @@ import 'leaflet/dist/leaflet.css'
 
 const HAZARD_NEAR_ME_RADIUS_KM = 10
 const HAZARD_INTERSECTION_RADIUS_KM = 0.05
+const MOBILE_BREAKPOINT_PX = 768
 const DASHBOARD_MODES = {
   explore: 'explore',
   plan: 'plan',
@@ -331,6 +332,10 @@ export default function MapDashboard() {
   const [planError, setPlanError] = useState('')
   const [plannedRoute, setPlannedRoute] = useState(null)
   const [plannedRouteBounds, setPlannedRouteBounds] = useState(null)
+  const [isMobileViewport, setIsMobileViewport] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`).matches
+  })
 
   const modeParam = searchParams.get('mode')
 
@@ -386,6 +391,25 @@ export default function MapDashboard() {
   )
 
   const activeMapBounds = dashboardMode === DASHBOARD_MODES.plan ? plannedRouteBounds : routeBounds
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+
+    const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`)
+    const handleChange = (event) => {
+      setIsMobileViewport(event.matches)
+    }
+
+    setIsMobileViewport(mediaQuery.matches)
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleChange)
+      return () => mediaQuery.removeEventListener('change', handleChange)
+    }
+
+    mediaQuery.addListener(handleChange)
+    return () => mediaQuery.removeListener(handleChange)
+  }, [])
 
   useEffect(() => {
     if (modeParam === DASHBOARD_MODES.plan || modeParam === DASHBOARD_MODES.explore) {
@@ -916,9 +940,8 @@ export default function MapDashboard() {
     <div className="dashboard-page relative">
       <div className="map-section relative">
         <div className="map-container relative">
-          <div className="map-overlay">
-            <div className="map-location-pill ml-auto">Active Routes: {routes.length} | Hazards: {filteredMapHazards.length}</div>
-          </div>
+          <div className="map-overlay" />
+          <div className="map-location-pill map-route-hazard-pill">Active Routes: {routes.length} | Hazards: {filteredMapHazards.length}</div>
 
           <div className="map-hazard-controls">
             <div className="map-hazard-filter-row">
@@ -945,13 +968,13 @@ export default function MapDashboard() {
             </div>
           ) : null}
 
-          <div className="map-live-badge absolute bottom-4 left-4 z-[1000] pointer-events-none">
+          <div className="map-live-badge absolute bottom-4 left-4 z-[120] pointer-events-none">
             <div className="map-live-dot" />
             <span>Live Map</span>
           </div>
 
           {dashboardMode === DASHBOARD_MODES.explore ? (
-            <div className="absolute top-4 left-16 z-[1000] pointer-events-auto flex max-w-[calc(100%-2rem)] flex-wrap gap-2 pr-4">
+            <div className="map-route-filter-row absolute top-4 left-16 z-[130] pointer-events-auto flex max-w-[calc(100%-2rem)] flex-wrap gap-2 pr-4">
               {[
                 { key: 'All', label: 'All' },
                 { key: 'Distance', label: `<= ${maxDistanceFilter}km` },
@@ -986,7 +1009,7 @@ export default function MapDashboard() {
           ) : null}
 
           {dashboardMode === DASHBOARD_MODES.explore && showDistanceSlider && (
-            <div className="absolute top-14 left-16 z-[1000] pointer-events-auto rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(16,21,33,0.82)] px-3 py-2 shadow-lg backdrop-blur-sm">
+            <div className="absolute top-14 left-16 z-[130] pointer-events-auto rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(16,21,33,0.82)] px-3 py-2 shadow-lg backdrop-blur-sm">
               <label className="flex items-center gap-3 text-xs font-medium text-gray-200">
                 <span>Distance {maxDistanceFilter}km</span>
                 <input
@@ -1007,7 +1030,7 @@ export default function MapDashboard() {
           )}
 
           {dashboardMode === DASHBOARD_MODES.explore && showEcoSlider && (
-            <div className="absolute top-14 left-16 z-[1000] pointer-events-auto rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(16,21,33,0.82)] px-3 py-2 shadow-lg backdrop-blur-sm">
+            <div className="absolute top-14 left-16 z-[130] pointer-events-auto rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(16,21,33,0.82)] px-3 py-2 shadow-lg backdrop-blur-sm">
               <label className="flex items-center gap-3 text-xs font-medium text-gray-200">
                 <span>Eco Score {minEcoScoreFilter}+</span>
                 <input
@@ -1388,16 +1411,21 @@ export default function MapDashboard() {
                 const latestUpdatedAt = latestUpdate?.createdAt || hazard?.updatedAt || hazard?.createdAt
                 const uploadTime = formatHazardUploadTime(latestUpdatedAt)
                 const hazardId = hazard?._id || hazard?.id
+                const markerEventHandlers = isMobileViewport
+                  ? {
+                    click: (event) => event.target.openPopup(),
+                  }
+                  : {
+                    mouseover: (event) => event.target.openPopup(),
+                    mouseout: (event) => event.target.closePopup(),
+                  }
 
                 return (
                   <Marker
                     key={hazardId || `hazard-${index}`}
                     position={[hazardCoordinates.lat, hazardCoordinates.lng]}
                     icon={markerIcon}
-                    eventHandlers={{
-                      mouseover: (event) => event.target.openPopup(),
-                      mouseout: (event) => event.target.closePopup(),
-                    }}
+                    eventHandlers={markerEventHandlers}
                   >
                     <Popup closeButton={false} autoPan={false} className="hazard-hover-popup">
                       <div className="card card-col map-hazard-popup-card">
