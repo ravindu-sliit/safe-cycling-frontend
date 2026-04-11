@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import PasswordField from '../components/PasswordField.jsx'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext.jsx'
 
@@ -811,11 +812,6 @@ export default function AdminProfile() {
                   </label>
 
                   <label className="admin-editor-field">
-                    <span>Role</span>
-                    <input type="text" className="admin-editor-input" value={getRoleLabel(profileDetails.role)} disabled />
-                  </label>
-
-                  <label className="admin-editor-field">
                     <span>Current Email</span>
                     <input type="text" className="admin-editor-input" value={profileDetails.email || 'Not available'} disabled />
                   </label>
@@ -978,8 +974,7 @@ export default function AdminProfile() {
 
                   <label className="admin-editor-field">
                     <span>Current Password</span>
-                    <input
-                      type="password"
+                    <PasswordField
                       name="currentPassword"
                       className="admin-editor-input"
                       value={emailForm.currentPassword}
@@ -1012,8 +1007,7 @@ export default function AdminProfile() {
                 <form className="admin-editor-form" onSubmit={handlePasswordSubmit}>
                   <label className="admin-editor-field">
                     <span>Current Password</span>
-                    <input
-                      type="password"
+                    <PasswordField
                       name="currentPassword"
                       className="admin-editor-input"
                       value={passwordForm.currentPassword}
@@ -1024,8 +1018,7 @@ export default function AdminProfile() {
 
                   <label className="admin-editor-field">
                     <span>New Password</span>
-                    <input
-                      type="password"
+                    <PasswordField
                       name="newPassword"
                       className="admin-editor-input"
                       value={passwordForm.newPassword}
@@ -1036,8 +1029,7 @@ export default function AdminProfile() {
 
                   <label className="admin-editor-field">
                     <span>Confirm Password</span>
-                    <input
-                      type="password"
+                    <PasswordField
                       name="confirmPassword"
                       className="admin-editor-input"
                       value={passwordForm.confirmPassword}
@@ -1086,8 +1078,7 @@ export default function AdminProfile() {
                   <form className="admin-editor-form admin-account-inline-form" onSubmit={handleTwoFactorSubmit}>
                     <label className="admin-editor-field">
                       <span>Current Password</span>
-                      <input
-                        type="password"
+                      <PasswordField
                         className="admin-editor-input"
                         value={twoFactorForm.currentPassword}
                         onChange={handleTwoFactorPasswordChange}

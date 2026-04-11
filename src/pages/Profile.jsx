@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import PasswordField from '../components/PasswordField.jsx'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext.jsx'
 
@@ -912,10 +913,9 @@ export default function Profile() {
 
                   <div className="pro-form-group">
                     <label className="pro-form-label" htmlFor="email-password">Current Password</label>
-                    <input
+                    <PasswordField
                       id="email-password"
                       className="pro-form-input"
-                      type="password"
                       name="currentPassword"
                       value={emailForm.currentPassword}
                       onChange={handleEmailChange}
@@ -1099,10 +1099,9 @@ export default function Profile() {
 
                     <div className="pro-form-group">
                       <label className="pro-form-label" htmlFor="two-factor-password">Current Password</label>
-                      <input
+                      <PasswordField
                         id="two-factor-password"
                         className="pro-form-input"
-                        type="password"
                         value={twoFactorForm.currentPassword}
                         onChange={handleTwoFactorPasswordChange}
                         required
@@ -1152,10 +1151,9 @@ export default function Profile() {
                 <form className="pro-security-grid" onSubmit={handlePasswordSubmit}>
                   <div className="pro-form-group">
                     <label className="pro-form-label" htmlFor="current-password">Current Password</label>
-                    <input
+                    <PasswordField
                       id="current-password"
                       className="pro-form-input"
-                      type="password"
                       name="currentPassword"
                       value={passwordForm.currentPassword}
                       onChange={handlePasswordChange}
@@ -1165,10 +1163,9 @@ export default function Profile() {
 
                   <div className="pro-form-group">
                     <label className="pro-form-label" htmlFor="new-password">New Password</label>
-                    <input
+                    <PasswordField
                       id="new-password"
                       className="pro-form-input"
-                      type="password"
                       name="newPassword"
                       value={passwordForm.newPassword}
                       onChange={handlePasswordChange}
@@ -1178,10 +1175,9 @@ export default function Profile() {
 
                   <div className="pro-form-group">
                     <label className="pro-form-label" htmlFor="confirm-password">Confirm New Password</label>
-                    <input
+                    <PasswordField
                       id="confirm-password"
                       className="pro-form-input"
-                      type="password"
                       name="confirmPassword"
                       value={passwordForm.confirmPassword}
                       onChange={handlePasswordChange}
