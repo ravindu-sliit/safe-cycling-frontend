@@ -10,6 +10,7 @@ const INITIAL_FORM = {
   difficulty: 'Easy',
   distance: '',
   comment: '',
+  pitStops: [],
 }
 
 function getCurrentUser() {
@@ -93,6 +94,12 @@ function IconPlus() {
 function IconRoute() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="19" r="3" /><path d="M9 19h8.5a3.5 3.5 0 000-7h-11a3.5 3.5 0 010-7H15" /><circle cx="18" cy="5" r="3" /></svg>
 }
+function IconEdit() {
+  return (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>);
+}
+function IconDelete() {
+  return (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>);
+}
 
 export default function Reviews() {
   const [routes, setRoutes] = useState([])
@@ -133,6 +140,34 @@ export default function Reviews() {
     setIsRouteDropdownOpen(false)
     setRouteSearch('')
   }
+
+  const [pitStopSearch, setPitStopSearch] = useState('')
+  const [pitStopResults, setPitStopResults] = useState([])
+  const [isSearchingPitStop, setIsSearchingPitStop] = useState(false)
+
+  const searchOpenStreetMap = async (e) => {
+    e.preventDefault();
+    if (!pitStopSearch.trim()) return;
+
+    setIsSearchingPitStop(true);
+    setFormError('');
+
+    try {
+      // Free Nominatim API, restricted to Sri Lanka (lk) for local accuracy
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(pitStopSearch)}&countrycodes=lk&limit=5`
+      );
+      
+      if (!response.ok) throw new Error('Network response was not ok');
+      
+      const data = await response.json();
+      setPitStopResults(data);
+    } catch (error) {
+      setFormError('Could not fetch locations. Please try again.');
+    } finally {
+      setIsSearchingPitStop(false);
+    }
+  };
 
   useEffect(() => {
     const fetchRoutes = async () => {
@@ -252,6 +287,7 @@ export default function Reviews() {
       difficulty: review?.difficulty || 'Easy',
       distance: Number(review?.distance || 0),
       comment: review?.comment || '',
+      pitStops: review?.pitStops || [],
     })
     setIsReviewModalOpen(true)
   }
@@ -282,6 +318,7 @@ export default function Reviews() {
       difficulty: formData.difficulty,
       distance: Number(formData.distance),
       comment: String(formData.comment || '').trim(),
+      pitStops: formData.pitStops || [],
     }
 
     if (!payload.route) {
@@ -343,6 +380,37 @@ export default function Reviews() {
         setReviews(response.data.reviews || []);
     } catch (error) {
         setFormError(extractRequestErrorMessage(error, 'Failed to register vote.'));
+    }
+  };
+
+  const handleShare = async (review) => {
+    // Gather the data you want to share
+    const routeTitle = review?.route?.title || review?.routeName || 'a cycling route';
+    const author = getDisplayName(review?.user);
+    const comment = review?.comment ? `${review.comment}` : '';
+    const url = window.location.href;
+    
+    const shareData = {
+      title: `Check out this cycling route!`,
+      text: `${author} just reviewed ${routeTitle} and gave it ${review.rating} stars. Say This: ${comment}`,
+      url: url,
+    };
+
+    // Check if the user's browser supports the native Share menu
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch (error) {
+        console.log('Sharing canceled or failed:', error);
+      }
+    } else {
+      // Fallback for older browsers (Copy to Clipboard)
+      try {
+        await navigator.clipboard.writeText(`${shareData.title} ${shareData.text} Link: ${shareData.url}`);
+        setFormError('Review link copied to clipboard!');
+      } catch (error) {
+        console.error('Could not copy text: ', error);
+      }
     }
   };
 
@@ -474,7 +542,87 @@ export default function Reviews() {
                   />
                 </div>
               </div>
+              {/* --- FREE OPENSTREETMAP PIT STOP SEARCH --- */}
+              <div className="osm-search-container">
+                <label>Tag a Pit Stop (Optional)</label>
+                <div className="osm-search-header">
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="Search for a shop, cafe, or location..."
+                    value={pitStopSearch}
+                    onChange={(e) => setPitStopSearch(e.target.value)}
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    onClick={searchOpenStreetMap}
+                    disabled={isSearchingPitStop}
+                  >
+                    {isSearchingPitStop ? '...' : 'Search'}
+                  </button>
+                </div>
 
+                {/* Display Search Results */}
+                {pitStopResults.length > 0 && (
+                  <div className="osm-results-dropdown">
+                    {pitStopResults.map((place) => (
+                      <button
+                        key={place.place_id}
+                        type="button"
+                        className="osm-result-item"
+                        onClick={() => {
+                          setFormData((prev) => {
+                            // Prevent adding the exact same place twice!
+                            const alreadyExists = prev.pitStops.some(p => p.placeId === place.place_id);
+                            if (alreadyExists) return prev;
+
+                            return {
+                              ...prev,
+                              // Use the spread operator [...] to keep existing stops and add the new one
+                              pitStops: [...prev.pitStops, {
+                                name: place.display_name.split(',')[0], 
+                                placeId: place.place_id,
+                                address: place.display_name
+                              }]
+                            };
+                          });
+                          setPitStopResults([]);
+                          setPitStopSearch('');
+                        }}
+                      >
+                        <strong>{place.display_name.split(',')[0]}</strong>
+                        <span>{place.display_name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Show ALL selected places */}
+                {formData.pitStops && formData.pitStops.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
+                      {formData.pitStops.map((stop) => (
+                        <div key={stop.placeId} className="osm-tagged-place" style={{ margin: 0 }}>
+                            <span>✓ Tagged: <strong>{stop.name}</strong></span>
+                            <button 
+                              type="button" 
+                              className="osm-remove-btn"
+                              onClick={() => {
+                                // Filter out the specific stop the user clicked "Remove" on
+                                setFormData(prev => ({ 
+                                  ...prev, 
+                                  pitStops: prev.pitStops.filter(p => p.placeId !== stop.placeId) 
+                                }))
+                              }}
+                            >
+                              Remove
+                            </button>
+                        </div>
+                      ))}
+                    </div>
+                )}
+              </div>
+              {/* --- END OSM SEARCH --- */}
               <div>
                 <label htmlFor="comment">Comment</label>
                 <textarea
@@ -582,6 +730,20 @@ export default function Reviews() {
                         <div className="meta-row">
                           <IconRoute /> {Number(review.distance || 0)} km
                         </div>
+                        {/* Render multiple OSM Pit Stop badges if they exist */}
+                        {review.pitStops && review.pitStops.length > 0 && (
+                          review.pitStops.map((stop, index) => (
+                            <a 
+                              key={stop.placeId || index}
+                              href={`https://www.openstreetmap.org/search?query=${encodeURIComponent(stop.address)}`}
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="badge badge-location"
+                            >
+                              📍 {stop.name}
+                            </a>
+                          ))
+                        )}
                       </div>
                     </div>
                     <div className="review-date-col">
@@ -619,16 +781,17 @@ export default function Reviews() {
                         );
                     })()}
                     {/* --- END OF VOTING SYSTEM --- */}
-                    <button className="btn btn-ghost btn-sm" disabled><IconComment /> Reply</button>
-                    <button className="btn btn-ghost btn-sm"><IconShare /> Share</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => handleShare(review)}>
+                      <IconShare /> Share
+                    </button>
                     {canEditReview(review) && (
                       <button className="btn btn-ghost btn-sm" onClick={() => handleEdit(review)}>
-                        Edit
+                        <IconEdit /> Edit
                       </button>
                     )}
                     {isAdmin && (
                       <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(reviewId)}>
-                        Delete
+                        <IconDelete /> Delete
                       </button>
                     )}
                   </div>
@@ -643,7 +806,7 @@ export default function Reviews() {
       {!loading && !loadError && filtered.length === 0 && (
         <div className="empty-state">
           <div className="empty-emoji">🗺️</div>
-          <p>No reviews found for this filter.</p>
+          <p>No reviews found.</p>
         </div>
       )}
     </div>
