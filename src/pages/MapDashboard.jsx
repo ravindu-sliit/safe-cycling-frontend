@@ -3,6 +3,9 @@ import { MapContainer, TileLayer, Polyline, Popup, Marker, useMap, useMapEvents 
 import { useLocation, useSearchParams } from 'react-router-dom'
 import L from 'leaflet'
 import { renderToStaticMarkup } from 'react-dom/server'
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
+import markerIcon from 'leaflet/dist/images/marker-icon.png'
+import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 import {
   AlertTriangle,
   Ban,
@@ -27,6 +30,13 @@ import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { HAZARD_TYPE_VALUES } from '../constants/hazardTypes'
 import 'leaflet/dist/leaflet.css'
+
+delete L.Icon.Default.prototype._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+})
 
 const HAZARD_NEAR_ME_RADIUS_KM = 10
 const HAZARD_INTERSECTION_RADIUS_KM = 0.05
