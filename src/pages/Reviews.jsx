@@ -94,6 +94,12 @@ function IconPlus() {
 function IconRoute() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="19" r="3" /><path d="M9 19h8.5a3.5 3.5 0 000-7h-11a3.5 3.5 0 010-7H15" /><circle cx="18" cy="5" r="3" /></svg>
 }
+function IconEdit() {
+  return (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>);
+}
+function IconDelete() {
+  return (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>);
+}
 
 export default function Reviews() {
   const [routes, setRoutes] = useState([])
@@ -374,6 +380,37 @@ export default function Reviews() {
         setReviews(response.data.reviews || []);
     } catch (error) {
         setFormError(extractRequestErrorMessage(error, 'Failed to register vote.'));
+    }
+  };
+
+  const handleShare = async (review) => {
+    // Gather the data you want to share
+    const routeTitle = review?.route?.title || review?.routeName || 'a cycling route';
+    const author = getDisplayName(review?.user);
+    const comment = review?.comment ? `${review.comment}` : '';
+    const url = window.location.href;
+    
+    const shareData = {
+      title: `Check out this cycling route!`,
+      text: `${author} just reviewed ${routeTitle} and gave it ${review.rating} stars. Say This: ${comment}`,
+      url: url,
+    };
+
+    // Check if the user's browser supports the native Share menu
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch (error) {
+        console.log('Sharing canceled or failed:', error);
+      }
+    } else {
+      // Fallback for older browsers (Copy to Clipboard)
+      try {
+        await navigator.clipboard.writeText(`${shareData.title} ${shareData.text} Link: ${shareData.url}`);
+        setFormError('Review link copied to clipboard!');
+      } catch (error) {
+        console.error('Could not copy text: ', error);
+      }
     }
   };
 
@@ -744,16 +781,17 @@ export default function Reviews() {
                         );
                     })()}
                     {/* --- END OF VOTING SYSTEM --- */}
-                    <button className="btn btn-ghost btn-sm" disabled><IconComment /> Reply</button>
-                    <button className="btn btn-ghost btn-sm"><IconShare /> Share</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => handleShare(review)}>
+                      <IconShare /> Share
+                    </button>
                     {canEditReview(review) && (
                       <button className="btn btn-ghost btn-sm" onClick={() => handleEdit(review)}>
-                        Edit
+                        <IconEdit /> Edit
                       </button>
                     )}
                     {isAdmin && (
                       <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(reviewId)}>
-                        Delete
+                        <IconDelete /> Delete
                       </button>
                     )}
                   </div>
