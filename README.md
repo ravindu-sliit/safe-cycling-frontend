@@ -224,23 +224,23 @@ npm run preview
 
 ### 9.4 Deployment Screenshots
 
-Place the screenshot files in `docs/screenshots/` using the exact file names below.
+Screenshots are stored in `docs/screenshots/`.
 
 #### Frontend Vercel Production Deployment
 
-![Frontend Vercel Production Deployment](docs/screenshots/frontend-vercel-overview.png)
+![Frontend Vercel Production Deployment](docs/screenshots/frontend.png)
 
 #### Backend Vercel Production Deployment
 
-![Backend Vercel Production Deployment](docs/screenshots/backend-vercel-overview.png)
+![Backend Vercel Production Deployment](docs/screenshots/backend.png)
 
 #### Frontend Live Map View
 
-![Frontend Live Map View](docs/screenshots/frontend-live-map.png)
+![Frontend Live Map View](docs/screenshots/frontend_live.png)
 
 #### Backend Live Health Endpoint
 
-![Backend Live Health Endpoint](docs/screenshots/backend-live-health.png)
+![Backend Live Health Endpoint](docs/screenshots/backend_live.png)
 
 ### 9.5 Quick Runtime Verification (Cloud)
 
