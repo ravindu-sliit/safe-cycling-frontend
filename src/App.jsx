@@ -12,19 +12,8 @@ import MapDashboard from './pages/MapDashboard.jsx'
 import Hazards from './pages/Hazards.jsx'
 import Reviews from './pages/Reviews.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
+import { BRAND_LOGO_SRC, BRAND_NAME } from './constants/brand.js'
 import { useAuth } from './context/AuthContext.jsx'
-
-function IconBike() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="5.5" cy="17.5" r="3.5" />
-      <circle cx="18.5" cy="17.5" r="3.5" />
-      <path d="M15 6h-5l-3 9" />
-      <path d="M18.5 14l-3.5-8H9" />
-      <path d="M5.5 14l4-8" />
-    </svg>
-  )
-}
 
 function IconMap() {
   return (
@@ -127,11 +116,9 @@ function Navbar() {
       <div className="topnav-inner">
         <Link to={dashboardPath} className="topnav-logo" onClick={() => setMobileOpen(false)}>
           <div className="topnav-logo-icon">
-            <IconBike />
+            <img src={BRAND_LOGO_SRC} alt="" aria-hidden="true" className="topnav-logo-img" />
           </div>
-          <div className="topnav-logo-text">
-            Safe<span>Cycling</span>
-          </div>
+          <div className="topnav-logo-text">{BRAND_NAME}</div>
         </Link>
 
         <div className="topnav-right">

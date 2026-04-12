@@ -165,24 +165,32 @@ svg {
 }
 
 .topnav-logo-icon {
-  width: 36px;
-  height: 36px;
-  background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
-  border-radius: 9px;
+  width: 48px;
+  height: 48px;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 13px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
   box-shadow: 0 0 16px var(--accent-glow);
+  overflow: hidden;
   flex-shrink: 0;
+}
+
+.topnav-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .topnav-logo-text {
   font-family: var(--font-display);
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 800;
   color: var(--text-primary);
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   line-height: 1;
 }
 
@@ -402,20 +410,28 @@ svg {
 }
 
 .site-footer-logo-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+  width: 58px;
+  height: 58px;
+  padding: 4px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 0 26px rgba(16, 185, 129, 0.28);
+  overflow: hidden;
+}
+
+.site-footer-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .site-footer-logo-text {
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 800;
   letter-spacing: -0.03em;
   color: var(--text-primary);
@@ -712,6 +728,15 @@ svg {
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
+.input.input-error {
+  border-color: rgba(239, 68, 68, 0.7);
+}
+
+.input.input-error:focus {
+  border-color: rgba(239, 68, 68, 0.9);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16);
+}
+
 .input:disabled {
   opacity: 0.75;
   cursor: not-allowed;
@@ -719,6 +744,8 @@ svg {
 
 .auth-select {
   appearance: none;
+  color-scheme: dark;
+  cursor: pointer;
   background-image:
     linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
     linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
@@ -735,6 +762,11 @@ svg {
   color: var(--text-primary);
 }
 
+.auth-select option:checked {
+  background: var(--brand-700);
+  color: #fff;
+}
+
 .textarea {
   resize: vertical;
   min-height: 96px;
@@ -746,6 +778,64 @@ label {
   font-weight: 500;
   color: var(--text-secondary);
   margin-bottom: 6px;
+}
+
+.auth-field-hint,
+.auth-field-error {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.auth-field-hint {
+  color: var(--text-muted);
+}
+
+.auth-field-error {
+  color: #fca5a5;
+}
+
+.password-field {
+  position: relative;
+  width: 100%;
+}
+
+.password-field-input {
+  padding-right: 76px;
+}
+
+.password-field-toggle {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-radius: 8px;
+  transition: color var(--tx), background var(--tx);
+}
+
+.password-field-toggle:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.password-field-toggle:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+.password-field-toggle svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
@@ -1843,20 +1933,29 @@ label {
 }
 
 .login-brand-icon {
-  width: 40px;
-  height: 40px;
-  background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
-  border-radius: 10px;
+  width: 64px;
+  height: 64px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 0 20px rgba(16, 185, 129, 0.35);
+  overflow: hidden;
+}
+
+.login-brand-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .login-brand-name {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 18px;
+  font-size: 24px;
   color: #fff;
 }
 
@@ -2771,6 +2870,9 @@ label {
 .review-date-col {
   text-align: right;
   flex-shrink: 0;
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
 }
 
 .review-date {
@@ -2789,8 +2891,125 @@ label {
 
 .review-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
   margin-top: 16px;
+  padding-right: 140px;
+}
+
+.card {
+  position: relative;
+}
+
+.review-top-actions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+}
+
+.review-top-actions .btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.review-top-actions .btn:hover {
+  background: var(--bg-hover);
+}
+
+.review-meta-row {
+  padding-right: 140px; 
+}
+
+/* ═══════════════════════════════════════════════
+   REVIEWS PAGE
+═══════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .page-header-row {
+    flex-direction: column;
+    align-items: flex-start; 
+    gap: 16px;
+  }
+
+  .page-header-row .filter-bar-spacer {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    margin-left: 0; 
+    gap: 10px;
+  }
+
+  .page-header-row .filter-bar-spacer > div {
+    width: 100%;
+    min-width: 100% !important;
+  }
+
+  .page-header-row .filter-bar-spacer .btn-primary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .card {
+    position: relative;
+  }
+
+  .review-meta-row {
+    padding-right: 0 !important;
+  }
+
+  .review-row {
+    padding-top: 24px; 
+  }
+
+  .review-date-col {
+    position: static !important; /* This cancels the absolute positioning */
+    text-align: left;
+    width: 100%;
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
+
+  .review-actions {
+    padding-right: 0 !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   VOTING SYSTEM
+═══════════════════════════════════════════════ */
+.vote-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-light);
+  border-radius: 99px;
+}
+
+.vote-score {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 24px;
+  text-align: center;
+  font-family: var(--font-display);
+}
+
+.vote-controls .btn-sm {
+  border: none;
+  border-radius: 99px;
+  padding: 5px 12px;
+  box-shadow: none;
+}
+
+.vote-controls .btn-ghost:hover {
+  background: var(--bg-hover);
 }
 
 /* ═══════════════════════════════════════════════
@@ -3459,8 +3678,20 @@ label {
   transition: all var(--tx);
 }
 
-.admin-filter-select {
+.admin-filter-select,
+select.admin-editor-input {
   appearance: none;
+  color-scheme: dark;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 12px) calc(50% - 3px);
+  background-repeat: no-repeat;
+  background-size: 6px 6px;
+  padding-right: 42px;
 }
 
 .admin-search-input:focus,
@@ -3473,6 +3704,18 @@ label {
 .admin-search-input::placeholder,
 .admin-editor-input::placeholder {
   color: var(--text-muted);
+}
+
+.admin-filter-select option,
+select.admin-editor-input option {
+  background: #172131;
+  color: #f8fafc;
+}
+
+.admin-filter-select option:checked,
+select.admin-editor-input option:checked {
+  background: #0f766e;
+  color: #fff;
 }
 
 .admin-primary-button,
@@ -4366,6 +4609,7 @@ label {
   grid-template-columns: 300px 1fr;
   gap: 28px;
   margin-top: -80px;
+  align-items: start;
 }
 
 /* ── Toast Messages ─────────────────────────── */
@@ -4428,6 +4672,9 @@ label {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  position: sticky;
+  top: calc(var(--nav-h) + 24px);
+  align-self: start;
 }
 
 /* ── Identity Card ──────────────────────────── */
@@ -4928,6 +5175,7 @@ label {
 
 .pro-form-select {
   appearance: none;
+  color-scheme: dark;
   cursor: pointer;
   background-image:
     linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
@@ -4943,6 +5191,11 @@ label {
 .pro-form-select option {
   background: var(--bg-surface);
   color: var(--text-primary);
+}
+
+.pro-form-select option:checked {
+  background: var(--brand-700);
+  color: #fff;
 }
 
 .pro-form-actions {
@@ -5121,6 +5374,8 @@ label {
 
   .pro-sidebar {
     order: -1;
+    position: static;
+    top: auto;
   }
 
   .pro-identity-card {

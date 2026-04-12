@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import PasswordField from '../components/PasswordField.jsx'
 import api from '../services/api'
+import { BRAND_LOGO_SRC, BRAND_NAME } from '../constants/brand.js'
 
 const initialForm = {
   password: '',
@@ -64,15 +66,9 @@ export default function ResetPassword() {
 
         <div className="login-brand-logo">
           <div className="login-brand-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="5.5" cy="17.5" r="3.5" />
-              <circle cx="18.5" cy="17.5" r="3.5" />
-              <path d="M15 6h-5l-3 9" />
-              <path d="M18.5 14l-3.5-8H9" />
-              <path d="M5.5 14l4-8" />
-            </svg>
+            <img src={BRAND_LOGO_SRC} alt="" aria-hidden="true" className="login-brand-img" />
           </div>
-          <span className="login-brand-name">Safe Cycling</span>
+          <span className="login-brand-name">{BRAND_NAME}</span>
         </div>
 
         <div className="login-brand-copy">
@@ -109,16 +105,15 @@ export default function ResetPassword() {
         <div className="login-form-inner">
           <div className="login-form-heading">
             <h2>Reset password</h2>
-            <p>Enter and confirm the new password you want to use for your Safe Cycling account</p>
+            <p>Enter and confirm the new password you want to use for your {BRAND_NAME} account</p>
           </div>
 
           <form onSubmit={handleSubmit} className="login-form">
             <div>
               <label htmlFor="password">New password</label>
-              <input
+              <PasswordField
                 id="password"
                 name="password"
-                type="password"
                 required
                 className="input"
                 placeholder="Enter a new password"
@@ -130,10 +125,9 @@ export default function ResetPassword() {
 
             <div>
               <label htmlFor="confirmPassword">Confirm password</label>
-              <input
+              <PasswordField
                 id="confirmPassword"
                 name="confirmPassword"
-                type="password"
                 required
                 className="input"
                 placeholder="Repeat the new password"
