@@ -384,8 +384,8 @@ export default function Reviews() {
   };
 
   const handleShare = async (review) => {
-    // Gather the data you want to share
-    const routeTitle = review?.route?.title || review?.routeName || 'a cycling route';
+    // Gather the data to share
+    const routeTitle = review.route?.title || 'a cycling route';
     const author = getDisplayName(review?.user);
     const comment = review?.comment ? `${review.comment}` : '';
     const url = window.location.href;
@@ -713,6 +713,18 @@ export default function Reviews() {
           return (
           <div key={reviewId} className="card">
             <div className="card-body">
+              <div className="review-top-actions">
+                {canEditReview(review) && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => handleEdit(review)}>
+                    <IconEdit /> Edit
+                  </button>
+                )}
+                {isAdmin && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(reviewId)}>
+                    <IconDelete /> Delete
+                  </button>
+                )}
+              </div>
               <div className="review-row">
                 {/* Avatar */}
                 <div className={`review-avatar ${AVATAR_CLASSES[i % AVATAR_CLASSES.length]}`}>
@@ -761,16 +773,14 @@ export default function Reviews() {
                         const hasDownvoted = review.downvotes?.includes(currentUserId);
 
                         return (
-                            <div className="vote-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <div className="vote-controls">
                                 <button 
                                     className={`btn btn-sm ${hasUpvoted ? 'btn-primary' : 'btn-ghost'}`} 
                                     onClick={() => handleVote(reviewId, 'up')}
                                 >
                                     👍 Helpful
                                 </button>
-                                
-                                <span style={{ fontWeight: 'bold' }}>{score}</span>
-                                
+                                <span className="vote-score">{score}</span>
                                 <button 
                                     className={`btn btn-sm ${hasDownvoted ? 'btn-danger' : 'btn-ghost'}`} 
                                     onClick={() => handleVote(reviewId, 'down')}
@@ -784,16 +794,6 @@ export default function Reviews() {
                     <button className="btn btn-ghost btn-sm" onClick={() => handleShare(review)}>
                       <IconShare /> Share
                     </button>
-                    {canEditReview(review) && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => handleEdit(review)}>
-                        <IconEdit /> Edit
-                      </button>
-                    )}
-                    {isAdmin && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(reviewId)}>
-                        <IconDelete /> Delete
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
